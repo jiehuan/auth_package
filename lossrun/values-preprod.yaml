@@ -1,0 +1,9 @@
+name: gdi-glr-frontend
+urlName: gdi-glr-frontend
+image: <+artifact.image>
+namespace: <+infra.namespace>
+gatewayHostname: axa-xl-preprod-lpl-int.xlc-prd5.eastus2.azure.openpaas.xlc.axa-cloud.com
+route:
+  enabled: true
+env:
+  config: {}
