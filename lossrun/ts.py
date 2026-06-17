@@ -40,4 +40,19 @@ conn = pyodbc.connect(conn_str)
 print('成功!')
 "
 
+python3 -c "
+import pyodbc
+conn_str = (
+    'DRIVER={ODBC Driver 17 for SQL Server};'
+    'SERVER=z-xlc-0122-axio-pp-ue2-sql03-axiomaisubmissionprioriti.database.windows.net,1433;'
+    'DATABASE=z-xlc-0122-axio-pp-ue2-sdb04-axiomaisubmissionprioriti;'
+    'UID=f5f4beaa-7200-4a89-ae9b-fa8915679bd6;'
+    'PWD=ud18Q~.7.DLz8YIJ05fEE5x9~MY5ImOnxYDIpbEs;'
+    'Encrypt=Yes;'
+    'TrustServerCertificate=Yes;'
+    'Login Timeout=30;'
+)
+conn = pyodbc.connect(conn_str)
+print('成功!')
+"
 
