@@ -1,0 +1,40 @@
+- stage:
+    name: Deploy professional-app DEV
+    identifier: deploy_professional_app_dev
+    type: Deployment
+    spec:
+      deploymentType: Kubernetes
+      service:
+        serviceRef: professional_app
+      environment:
+        environmentRef: dev
+        deployToAll: false
+        infrastructureDefinitions:
+          - identifier: openshift_dev
+      execution:
+        steps:
+          - step:
+              name: Rollout Deployment
+              identifier: rollout_deployment
+              type: K8sRollingDeploy
+              timeout: 10m
+              spec:
+                skipDryRun: false
+          - step:
+              name: Build and Push Image
+              identifier: build_push
+              type: BuildAndPushDockerRegistry
+              spec:
+                connectorRef: <YOUR_DOCKER_CONNECTOR>
+                repo: <YOUR_REGISTRY>/professional-app
+                tags:
+                  - latest
+                  - <+pipeline.executionId>
+                dockerfile: Dockerfile
+                context: .
+        rollbackSteps:
+          - step:
+              name: Rollback
+              identifier: rollback
+              type: K8sRollingRollback
+              timeout: 10m
