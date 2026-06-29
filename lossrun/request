@@ -1,0 +1,19 @@
+Hi team,
+
+For our project integration with Microsoft Graph API (React frontend + Python FastAPI BFF), could you please help with the following?
+
+📋 Info needed:
+• Tenant ID
+• Client ID
+• Client Secret
+• AD Group ID (for access control)
+
+⚙️ App Registration config needed:
+• Redirect URI whitelist: http://localhost:3000 (local dev)
+• Delegated permissions: User.Read, openid, profile
+• Enable Group claims in token
+• Grant Admin consent for the above permissions
+
+Please let us know if you need anything from our side (app name, owner, etc.).
+
+Thanks!
