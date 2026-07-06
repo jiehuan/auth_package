@@ -1,0 +1,110 @@
+好,方案 C——每个环境一个 `.env.<mode>` 文件,Harness 对应环境用 `vite build --mode <env>` 加载。清晰、可控,适合你有 dev/preprod(将来 prod)多套环境的情况。
+
+先理清 Vite 的 mode ↔ env 文件对应关系:`vite build --mode preprod` 会加载 `.env.preprod`(以及 `.env.preprod.local`)。mode 名字随便取,只要 build 命令的 `--mode` 和文件名 `.env.<mode>` 一致即可。
+
+---
+
+**第 1 步:创建各环境的 .env 文件**
+
+在 `frontend/` 目录下,按环境建文件,每个填**该环境自己的 backend 绝对地址**(末尾带 `/api`,因为 backend 路由是 `/api/xxx`)。
+
+`frontend/.env.dev`
+```
+VITE_API_BASE_URL=https://gdi-glr-backend-0122axio-01-dev-axa-xl.axa-xl-dev-int.xlc-npd3.eastus2.azure.openpaas.xlc.axa-cloud.com/api
+VITE_APP_NAME=ViteReactApp
+```
+
+`frontend/.env.preprod`
+```
+VITE_API_BASE_URL=https://gdi-glr-backend-0328axio-01-preprod-axa-xl.axa-xl-preprod-spl-int.xlc-prd5.eastus2.azure.openpaas.xlc.axa-cloud.com/api
+VITE_APP_NAME=ViteReactApp
+```
+
+将来的 `frontend/.env.prod`(现在没有 prod 就先不建)
+```
+VITE_API_BASE_URL=https://<prod-backend-hostname>/api
+VITE_APP_NAME=ViteReactApp
+```
+
+preprod 的地址来自你 values-ppd.spl.yaml 的 gatewayHostname,确认一下拼出来对不对:`gdi-glr-backend-0328axio-01-preprod-axa-xl` + `.axa-xl-preprod-spl-int.xlc-prd5.eastus2.azure.openpaas.xlc.axa-cloud.com`。前缀 `gdi-glr-backend-<namespace-part>` 这段你按实际 backend route 的 host 核对——最稳的办法是直接浏览器打开 preprod backend 的 route,把那个 host 抄过来。
+
+---
+
+**第 2 步:package.json 加对应的 build script**
+
+现有:
+```json
+"build": "vite build",
+"build:dev": "vite build --mode development",
+```
+
+改成/补成:
+```json
+"build:dev": "vite build --mode dev",
+"build:preprod": "vite build --mode preprod",
+"build:prod": "vite build --mode prod",
+```
+
+注意:`--mode` 后的名字要和 `.env.<名字>` 完全一致。我上面用 `dev`/`preprod`/`prod`,所以文件就叫 `.env.dev`/`.env.preprod`/`.env.prod`。你原来的 `build:dev` 用的是 `--mode development`(对应 `.env.development`)——统一一下,要么全用 `development` 要么全用 `dev`,别混。我建议短名 `dev`/`preprod`/`prod`,把旧的 `.env.development` 重命名成 `.env.dev`(或保留 development 命名也行,只要一致)。
+
+可以保留一个默认 `"build": "vite build"` 兜底(读 `.env.production`),但既然走方案 C,每个环境都显式指定 mode,更清晰。
+
+---
+
+**第 3 步:Harness 每个环境的 build step 改 build 命令**
+
+这是方案 C 的关键。你现在 preprod-spl 这条 pipeline 的 **Build Frontend App Image → npm_build** step(就是之前截图里那个 Run step,命令第 7 行是 `npm run build`),把它改成:
+
+```
+npm run build:preprod
+```
+
+dev 环境的 pipeline 对应改成 `npm run build:dev`,将来 prod 的改成 `npm run build:prod`。
+
+每条环境 pipeline 各自指定自己的 build 命令,构建出各自的镜像,调各自的后端。
+
+---
+
+**第 4 步:还原 nginx.conf(去掉反代)**
+
+因为方案 C 走绝对地址、不走 `/api` 反代,把 nginx.conf 的 `location /api/` 那段删掉,回到你原始版本:
+
+```nginx
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+---
+
+**第 5 步:client.ts 确认不变**
+
+`client.ts` 里已经是 `baseUrl = import.meta.env.VITE_API_BASE_URL`,这个正确,不用动。build 时 `--mode preprod` 会把 `.env.preprod` 的值烘焙进去。
+
+---
+
+**部署验证:**
+
+1. 提交上面所有改动到 `infra/spl-pipeline-jh`
+2. 重跑 preprod frontend pipeline(build step 现在跑 `npm run build:preprod`)
+3. **无痕窗口**打开前端(避开缓存),上传文件
+4. Network 看 Request URL——应该是:
+   ```
+   https://gdi-glr-backend-0328axio-01-preprod-axa-xl...preprod-spl...prd5.../api/upload-document
+   ```
+   注意是 **preprod**(`0328axio`/`preprod-spl`/`prd5`),不再是 dev。Status 200,ADLS 里出现文件。
+
+**一定要用无痕窗口或 Disable cache + Ctrl+Shift+R**——之前那个 dev 地址很可能一直是浏览器缓存的旧 JS,换了方案后如果还用缓存,你会以为没生效。
+
+---
+
+小结:方案 C = 每环境一个 `.env.<mode>` 装该环境 backend 绝对地址 + package.json 加 `build:<env>` script + Harness 每条环境 pipeline 的 build step 跑对应 `npm run build:<env>`。改动集中在这三处,nginx 还原,代码不动。
+
+先确认一件事再动手:**preprod backend 的 route host 到底是什么?** 直接浏览器打开你之前访问过的 preprod backend URL(`gdi-glr-backend-0328axio-01-preprod-...`),把地址栏完整 host 抄给我,我帮你确认 `.env.preprod` 那行写得对不对——这个地址错了整个方案就白搭。
