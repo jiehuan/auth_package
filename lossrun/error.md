@@ -43,3 +43,22 @@ Also worth noting from the log: the account is `zxlc0159adlsppue2dls01.dfs.core.
 The 19–22 second gaps I flagged earlier are just `ClientSecretCredential`'s internal retry backoff, not a NetworkPolicy problem — TLS to `login.microsoftonline.com` is clearly working since Entra is returning structured errors. That earlier hypothesis is dead.
 
 One code note: `_verify_connectivity()` is doing its job — `ADLS client initialization failed; cleaning up` appears in the log, followed by the teardown. That's the new code catching what the old `health_check()` silently swallowed.
+
+
+
+python -c "
+import os, urllib.request, urllib.parse, json
+t = os.environ['ADLS_TENANT_ID']
+d = urllib.parse.urlencode({
+    'client_id': os.environ['ADLS_CLIENT_ID'],
+    'client_secret': os.environ['ADLS_CLIENT_SECRET'],
+    'scope': 'https://storage.azure.com/.default',
+    'grant_type': 'client_credentials',
+}).encode()
+try:
+    r = urllib.request.urlopen(f'https://login.microsoftonline.com/{t}/oauth2/v2.0/token', d)
+    print('SUCCESS', r.status)
+except urllib.error.HTTPError as e:
+    print('FAIL', e.code, e.read().decode()[:400])
+"
+
