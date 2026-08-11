@@ -1,0 +1,143 @@
+﻿"Issue ID","Parent ID","Issue Type","Summary","Description","Epic Name","Epic Link","Story Points","Priority","Labels","Component"
+"1","","Epic","Migrate document processing pipeline from Databricks to OpenShift","The document processing logic currently runs as a Databricks job that monitors an ADLS Gen2 landing folder, processes new files, and writes results back to ADLS for user download. The frontend and backend already run on OpenShift.
+
+This epic moves the processing logic into a single-replica, always-on Python worker on OpenShift that processes files SERIALLY, driven by a job table in Azure SQL. There is no Spark dependency and daily volume is a few dozen files, so one pod is sufficient.
+
+Serial processing in a single pod is also the throttling strategy: the internal LLM gateway enforces a per-minute token limit, and one in-flight request at a time keeps us under it without any distributed rate limiter.
+
+EXPLICITLY OUT OF SCOPE (deliberate - do not add back): message queue, distributed rate limiting, horizontal autoscaling, per-file Kubernetes Jobs.
+
+SUCCESS CRITERIA:
+- All new uploads processed by the OpenShift worker, output byte-identical to Databricks.
+- Multi-file uploads drain in order without triggering LLM gateway rate limits.
+- Databricks job disabled; rollback possible within 1 hour for 30 days after cutover.","Migrate Document Processing to OpenShift","","","High","databricks-to-openshift","Document Processing"
+"2","1","Story","Inventory Databricks dependencies and profile current workload","Collect the facts needed to size the OpenShift worker and set realistic expectations for throughput. Deliverable is a one-page document listing every Databricks-specific API in use with its replacement, plus the workload profile numbers.
+
+ACCEPTANCE CRITERIA:
+- Written inventory of Databricks-specific APIs and their replacements.
+- Workload profile captured (timings, memory, volumes, token usage).
+- Initial CPU/memory request and limit values backed by measured data, not guesses.","","Migrate Document Processing to OpenShift","2","High","databricks-to-openshift","Document Processing"
+"3","2","Sub-task","List all Databricks-specific calls: dbutils.fs, dbutils.secrets, DBFS paths, notebook widgets","","","","","High","databricks-to-openshift","Document Processing"
+"4","2","Sub-task","Export from job run history: per-file processing time p50/p95/max, peak memory, daily and peak file counts","","","","","High","databricks-to-openshift","Document Processing"
+"5","2","Sub-task","Measure average token consumption per file and divide by the LLM gateway TPM quota to derive theoretical throughput (files per minute)","","","","","High","databricks-to-openshift","Document Processing"
+"6","2","Sub-task","Confirm requirements.txt installs on a clean Python environment (DBR pre-installs many libraries)","","","","","High","databricks-to-openshift","Document Processing"
+"7","2","Sub-task","Document recommended CPU/memory requests and limits","","","","","High","databricks-to-openshift","Document Processing"
+"8","1","Story","Create processing_job table and claim semantics in Azure SQL","The job table replaces both the folder-monitoring trigger and a message queue. The backend inserts a row on upload; the worker polls for QUEUED rows and claims them atomically.
+
+ACCEPTANCE CRITERIA:
+- processing_job table created with migration script under version control.
+- Worker can claim a job atomically; no double-claim on restart or overlapping polls.
+- Stale RUNNING rows left by a crashed pod are recovered automatically.","","Migrate Document Processing to OpenShift","3","High","databricks-to-openshift","Document Processing"
+"9","8","Sub-task","Create processing_job table: job_id, blob_path, status (QUEUED/RUNNING/SUCCEEDED/FAILED), attempt_count, error_message, output_path, created_at, started_at, finished_at","","","","","High","databricks-to-openshift","Document Processing"
+"10","8","Sub-task","Add Alembic migration script and a composite index on (status, created_at)","","","","","High","databricks-to-openshift","Document Processing"
+"11","8","Sub-task","Implement atomic claim: single UPDATE ... OUTPUT statement selecting the oldest QUEUED row and setting it to RUNNING","","","","","High","databricks-to-openshift","Document Processing"
+"12","8","Sub-task","Implement stale job recovery: RUNNING rows older than a threshold return to QUEUED on worker startup","","","","","High","databricks-to-openshift","Document Processing"
+"13","8","Sub-task","Request firewall and NSG rules for OpenShift egress to ADLS, Azure SQL, and the internal LLM gateway","","","","","High","databricks-to-openshift","Document Processing"
+"14","1","Story","Refactor processing code into a standalone Python worker package","Extract the Databricks notebook code into a proper, testable Python package with zero Databricks imports. Storage access is funnelled through a single abstraction so it can be mocked in tests.
+
+ACCEPTANCE CRITERIA:
+- 'python -m worker --blob-path <path>' processes a single file locally end to end.
+- No Databricks imports anywhere in the package.
+- Unit test coverage of the core processing module at 70% or above.","","Migrate Document Processing to OpenShift","5","High","databricks-to-openshift","Document Processing"
+"15","14","Sub-task","Convert notebook code into a proper package (src/worker/) with pyproject.toml and pinned dependency versions","","","","","High","databricks-to-openshift","Document Processing"
+"16","14","Sub-task","Replace dbutils.fs calls with an azure-storage-file-datalake SDK wrapper (download_to_temp, upload_result)","","","","","High","databricks-to-openshift","Document Processing"
+"17","14","Sub-task","Replace dbutils.secrets.get() with a Pydantic Settings config loader reading environment variables","","","","","High","databricks-to-openshift","Document Processing"
+"18","14","Sub-task","Write all temporary files to /tmp only - the restricted SCC runs the container as an arbitrary UID","","","","","High","databricks-to-openshift","Document Processing"
+"19","14","Sub-task","Add structured JSON logging with job_id and blob_path on every log line","","","","","High","databricks-to-openshift","Document Processing"
+"20","14","Sub-task","Keep a single-file CLI mode for local debugging and manual re-runs in production","","","","","High","databricks-to-openshift","Document Processing"
+"21","14","Sub-task","Add unit tests with mocked ADLS and mocked LLM responses","","","","","High","databricks-to-openshift","Document Processing"
+"22","1","Story","Implement the serial worker main loop","The worker polls the job table, processes one file at a time, records state transitions, and writes output back to the existing ADLS output path.
+
+Serial execution is intentional and load-bearing: it is what keeps us inside the LLM gateway's per-minute token limit. Do not introduce a thread pool or asyncio concurrency here.
+
+ACCEPTANCE CRITERIA:
+- Files processed one at a time with status recorded at each transition.
+- Output path convention identical to the Databricks job.
+- SIGTERM never loses a file.","","Migrate Document Processing to OpenShift","5","High","databricks-to-openshift","Document Processing"
+"23","22","Sub-task","Implement main loop: claim one QUEUED job, process, write result, mark SUCCEEDED/FAILED, repeat; sleep when the table is empty","","","","","High","databricks-to-openshift","Document Processing"
+"24","22","Sub-task","Keep processing strictly serial - no thread pool, no asyncio concurrency - and add a code comment explaining this is the rate-limiting strategy","","","","","High","databricks-to-openshift","Document Processing"
+"25","22","Sub-task","Add exponential backoff with jitter on LLM 429/529, honouring Retry-After; retries do not increment attempt_count","","","","","High","databricks-to-openshift","Document Processing"
+"26","22","Sub-task","Mark job FAILED with error_message after the retry ceiling (3 attempts) is reached","","","","","High","databricks-to-openshift","Document Processing"
+"27","22","Sub-task","Add a per-file timeout so a pathological document cannot block the loop indefinitely","","","","","High","databricks-to-openshift","Document Processing"
+"28","22","Sub-task","Handle SIGTERM: finish the current file or reset it to QUEUED, then exit cleanly; set terminationGracePeriodSeconds above per-file p95","","","","","High","databricks-to-openshift","Document Processing"
+"29","22","Sub-task","Add lightweight /healthz and /readyz HTTP endpoints","","","","","High","databricks-to-openshift","Document Processing"
+"30","22","Sub-task","Add idempotency check: skip if a SUCCEEDED record already exists for the same job_id","","","","","High","databricks-to-openshift","Document Processing"
+"31","1","Story","Update backend to create jobs and expose job status","The FastAPI BFF inserts a QUEUED row after a successful upload and exposes status endpoints so the frontend can show progress. With serial processing, a user uploading ten files needs to see queue position rather than guessing whether the system has hung.
+
+ACCEPTANCE CRITERIA:
+- A QUEUED row is created for every successful upload.
+- Status endpoints return position in queue and are authorised so users see only their own jobs.
+- Download endpoint reads output_path instead of guessing the folder.","","Migrate Document Processing to OpenShift","3","Medium","databricks-to-openshift","Document Processing"
+"32","31","Sub-task","Insert a QUEUED processing_job row after upload completes","","","","","Medium","databricks-to-openshift","Document Processing"
+"33","31","Sub-task","Add GET /api/jobs/{job_id} and GET /api/jobs with Entra ID authorisation scoping results to the requesting user","","","","","Medium","databricks-to-openshift","Document Processing"
+"34","31","Sub-task","Return queue position (rank by created_at) so the frontend can display 'file 3 of 8'","","","","","Medium","databricks-to-openshift","Document Processing"
+"35","31","Sub-task","Update the download endpoint to read output_path from the job table instead of globbing the folder","","","","","Medium","databricks-to-openshift","Document Processing"
+"36","31","Sub-task","Add a reconciliation task that finds ADLS files with no corresponding job row and creates one","","","","","Medium","databricks-to-openshift","Document Processing"
+"37","31","Sub-task","Update the OpenAPI spec and notify the frontend team","","","","","Medium","databricks-to-openshift","Document Processing"
+"38","1","Story","Containerise the worker","Build a reproducible image on the approved base image that runs correctly under OpenShift's restricted SCC.
+
+ACCEPTANCE CRITERIA:
+- Image runs as a non-root arbitrary UID and passes the organisation's image scan.
+- Container runs successfully against dev Azure SQL and dev ADLS.","","Migrate Document Processing to OpenShift","3","Medium","databricks-to-openshift","Document Processing"
+"39","38","Sub-task","Write a multi-stage Dockerfile based on the approved UBI Python image from Artifactory","","","","","Medium","databricks-to-openshift","Document Processing"
+"40","38","Sub-task","Make the image work under a random UID: group-writable /app, HOME=/tmp, no hard-coded USER 1001 assumptions","","","","","Medium","databricks-to-openshift","Document Processing"
+"41","38","Sub-task","Point pip.conf at Artifactory with the token injected from a Harness secret, not baked into an image layer","","","","","Medium","databricks-to-openshift","Document Processing"
+"42","38","Sub-task","Pre-download NLP model artifacts at build time so the pod does not fetch them on every start","","","","","Medium","databricks-to-openshift","Document Processing"
+"43","38","Sub-task","Run the image vulnerability scan and remediate critical findings","","","","","Medium","databricks-to-openshift","Document Processing"
+"44","38","Sub-task","Test the container locally against dev Azure SQL and dev ADLS","","","","","Medium","databricks-to-openshift","Document Processing"
+"45","1","Story","Create OpenShift deployment manifests","Deploy the worker as a single replica with no autoscaling. Replica count is a correctness constraint, not a capacity decision: additional replicas would run LLM calls in parallel and breach the gateway's token limit.
+
+ACCEPTANCE CRITERIA:
+- Worker deployed to preprod at replicas: 1 with no HPA or KEDA configured.
+- Rollout strategy prevents old and new pods running simultaneously.
+- Outbound connectivity through the corporate proxy verified.","","Migrate Document Processing to OpenShift","3","Medium","databricks-to-openshift","Document Processing"
+"46","45","Sub-task","Write Deployment, Service, ConfigMap and ServiceAccount manifests (Helm chart or Kustomize overlays per environment)","","","","","Medium","databricks-to-openshift","Document Processing"
+"47","45","Sub-task","Set replicas: 1 with no HPA or KEDA, and comment in the values file that serial processing is the rate-limiting strategy so nobody adds replicas later","","","","","Medium","databricks-to-openshift","Document Processing"
+"48","45","Sub-task","Use Recreate strategy with maxSurge: 0 so old and new pods never process concurrently","","","","","Medium","databricks-to-openshift","Document Processing"
+"49","45","Sub-task","Set resource requests and limits from the Story 1 profiling data and confirm they fit the namespace quota","","","","","Medium","databricks-to-openshift","Document Processing"
+"50","45","Sub-task","Create Secrets for the ADLS service principal, SQL connection string and LLM gateway credentials","","","","","Medium","databricks-to-openshift","Document Processing"
+"51","45","Sub-task","Mount an emptyDir at /tmp sized for the largest expected document","","","","","Medium","databricks-to-openshift","Document Processing"
+"52","45","Sub-task","Verify egress through the corporate proxy: HTTP_PROXY, HTTPS_PROXY, NO_PROXY and CA bundle mount; add the internal LLM gateway to NO_PROXY","","","","","Medium","databricks-to-openshift","Document Processing"
+"53","1","Story","Build the Harness CI/CD pipeline for the worker","Commit to main triggers build, test, scan, push to Artifactory and deploy to preprod. Production deploy is gated on manual approval.
+
+ACCEPTANCE CRITERIA:
+- Pipeline runs green end to end into preprod.
+- Post-deploy smoke test proves the worker processes a canary file.
+- Rollback step exists and is documented.","","Migrate Document Processing to OpenShift","3","Medium","databricks-to-openshift","Document Processing"
+"54","53","Sub-task","Create the build stage: lint, unit tests and a coverage gate","","","","","Medium","databricks-to-openshift","Document Processing"
+"55","53","Sub-task","Add image build and push to Artifactory, verifying repository path and push permissions","","","","","Medium","databricks-to-openshift","Document Processing"
+"56","53","Sub-task","Add per-environment deploy stages with the correct delegate selector and manifest branch","","","","","Medium","databricks-to-openshift","Document Processing"
+"57","53","Sub-task","Wire environment-specific secrets and service principals; confirm the preprod service principal is in the correct tenant","","","","","Medium","databricks-to-openshift","Document Processing"
+"58","53","Sub-task","Add a post-deploy smoke test that inserts a canary job row and asserts output appears in ADLS","","","","","Medium","databricks-to-openshift","Document Processing"
+"59","53","Sub-task","Add a rollback step and document the manual rollback procedure","","","","","Medium","databricks-to-openshift","Document Processing"
+"60","1","Story","Add metrics, dashboard and alerting","Instrument the worker so backlog and token consumption are visible. With a single serial worker, backlog growth is the primary signal that throughput assumptions were wrong.
+
+ACCEPTANCE CRITERIA:
+- Dashboard shows backlog depth, processing rate, latency percentiles, error rate and token consumption.
+- Logs searchable by job_id in the central platform.
+- Alerts route to the team channel.","","Migrate Document Processing to OpenShift","2","Medium","databricks-to-openshift","Document Processing"
+"61","60","Sub-task","Expose Prometheus metrics: jobs processed, duration histogram, failures by reason, LLM call latency and token consumption, backlog depth","","","","","Medium","databricks-to-openshift","Document Processing"
+"62","60","Sub-task","Build the dashboard and ship logs to the central platform with job_id searchable","","","","","Medium","databricks-to-openshift","Document Processing"
+"63","60","Sub-task","Configure alerts: sustained backlog above threshold, pod CrashLoopBackOff, failure rate above 5%, and any LLM 429 occurrence","","","","","Medium","databricks-to-openshift","Document Processing"
+"64","1","Story","Run in parallel, validate output parity and cut over","Run the OpenShift worker in shadow mode alongside the Databricks job, prove output parity, then cut over with a documented rollback path.
+
+ACCEPTANCE CRITERIA:
+- Byte-level parity report produced and every discrepancy triaged.
+- Burst test of 20 simultaneous uploads completes with zero LLM 429s.
+- Databricks job disabled with configuration retained for 30 days.","","Migrate Document Processing to OpenShift","5","High","databricks-to-openshift","Document Processing"
+"65","64","Sub-task","Assemble a regression set of representative documents including edge cases and previously failed files","","","","","High","databricks-to-openshift","Document Processing"
+"66","64","Sub-task","Run the worker in shadow mode writing to a parallel output prefix","","","","","High","databricks-to-openshift","Document Processing"
+"67","64","Sub-task","Diff outputs byte for byte and triage every discrepancy","","","","","High","databricks-to-openshift","Document Processing"
+"68","64","Sub-task","Burst test: upload 20 files at once and assert all succeed with zero 429s and total time matching the throughput derived from the token quota","","","","","High","databricks-to-openshift","Document Processing"
+"69","64","Sub-task","Write the cutover plan: go/no-go criteria, window, communications and rollback steps","","","","","High","databricks-to-openshift","Document Processing"
+"70","64","Sub-task","Execute cutover and monitor for 48 hours","","","","","High","databricks-to-openshift","Document Processing"
+"71","64","Sub-task","Disable the Databricks job without deleting it; retain the configuration for 30 days","","","","","High","databricks-to-openshift","Document Processing"
+"72","64","Sub-task","After the soak period, delete the Databricks job, remove unused Databricks secrets and close out the cost comparison","","","","","High","databricks-to-openshift","Document Processing"
+"73","1","Story","Write documentation and on-call runbook","Capture the new architecture and the operational procedures, including the reasoning behind the single-replica serial design so it is not undone by a future change.
+
+ACCEPTANCE CRITERIA:
+- Architecture diagram updated and runbook published.
+- Decision record explains why the worker is single-replica and serial.","","Migrate Document Processing to OpenShift","2","Medium","databricks-to-openshift","Document Processing"
+"74","73","Sub-task","Update the architecture diagram: upload to BFF, ADLS plus SQL job table, worker, ADLS, download","","","","","Medium","databricks-to-openshift","Document Processing"
+"75","73","Sub-task","Write the on-call runbook: inspecting backlog, re-running a single file, clearing stuck RUNNING rows","","","","","Medium","databricks-to-openshift","Document Processing"
+"76","73","Sub-task","Document local development setup, update the README, and record the decision that the worker is single-replica and serial by design","","","","","Medium","databricks-to-openshift","Document Processing"
