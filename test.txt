@@ -1,0 +1,27 @@
+- step:
+    type: Run
+    name: buildah_debug
+    identifier: buildah_debug
+    spec:
+      connectorRef: jfrog0122axio
+      image: artifactory.platform.axaxl-cloud.com/toolingforge/plugins/xlc-panda-buildah:release-3.1.12
+      shell: Sh
+      command: |-
+        set -x
+        pwd; ls -la
+        echo "=== A. dockerignore 实际内容 ==="
+        cat .dockerignore 2>/dev/null || echo "(没有这个文件)"
+
+        echo "=== B. buildah 版本 ==="
+        buildah --version
+
+        echo "=== C. 能不能拉基础镜像 ==="
+        buildah pull artifactory.platform.axaxl-cloud.com/docker/node:22.19-alpine
+
+        echo "=== D. 最小 Dockerfile,只有一行 FROM ==="
+        mkdir -p /tmp/min
+        echo "FROM artifactory.platform.axaxl-cloud.com/docker/node:22.19-alpine" > /tmp/min/Dockerfile
+        buildah bud -f /tmp/min/Dockerfile -t minimal:test /tmp/min
+
+        echo "=== E. 真实 Dockerfile,不加管道 ==="
+        buildah bud --log-level debug -f Dockerfile -t teampulse-app:test .
