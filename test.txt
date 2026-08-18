@@ -1,23 +1,19 @@
-echo "===== WORKSPACE ====="
+set -eux
+
+echo "=== ENV ==="
 pwd
-ls -la
+whoami
+id
 
-echo "===== ORIGINAL DOCKERFILE ====="
-ls -l Dockerfile
-sha256sum Dockerfile
-head -20 Dockerfile
+echo "=== BUILDAH ==="
+buildah --version
+buildah info
 
-echo "===== CREATE PROBE ====="
-cat > Dockerfile.probe <<'EOF'
-FROM artifactory.platform.axaxl-cloud.com/docker/nginxinc/nginx-unprivileged:stable-alpine
-RUN echo "PANDA_PROBE_REACHED_DOCKERFILE"
-CMD ["nginx", "-g", "daemon off;"]
-EOF
-
-echo "probe" > probe.txt
-
-ls -l Dockerfile.probe probe.txt
-cat Dockerfile.probe
+echo "=== MINIMAL BUILDAH TEST ==="
+buildah from scratch
 
 
-
+buildah bud --log-level=debug \
+  -f /harness/Dockerfile.probe \
+  -t panda-probe \
+  /harness
