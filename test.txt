@@ -1,26 +1,35 @@
-set -x
+route.yaml
 
-echo "===== ENV ====="
-pwd
-whoami
-id
-echo "PATH=$PATH"
+{{- if .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
 
-echo "===== ROOT ====="
-ls -la /
-ls -la /usr/bin 2>/dev/null | head -100
-ls -la /usr/local/bin 2>/dev/null | head -100
+metadata:
+  name: {{ .Values.name }}-route
+  labels:
+    app: {{ .Values.name }}
+    router: internal
+  annotations:
+    haproxy.router.openshift.io/timeout: 300s
 
-echo "===== SEARCH PANDA / BUILDAH ====="
-command -v buildah || true
-command -v panda || true
+spec:
+  host: {{ .Values.urlName }}-{{ .Values.namespace }}.{{ .Values.gatewayHostname }}
+  path: /
 
-find / -maxdepth 4 \
-  \( -iname '*buildah*' -o -iname '*panda*' -o -iname '*plugin*' \) \
-  2>/dev/null | head -100
+  to:
+    kind: Service
+    name: {{ .Values.name }}
+    weight: 100
 
-echo "===== ENV VARIABLES ====="
-env | sort
+  port:
+    targetPort: http
 
-echo "===== WORKSPACE ====="
-ls -la /harness
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+  wildcardPolicy: None
+{{- end }}
+
+
+
