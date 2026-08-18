@@ -1,26 +1,26 @@
-set -eux
+set -x
 
 echo "===== ENV ====="
 pwd
 whoami
 id
+echo "PATH=$PATH"
+
+echo "===== ROOT ====="
+ls -la /
+ls -la /usr/bin 2>/dev/null | head -100
+ls -la /usr/local/bin 2>/dev/null | head -100
+
+echo "===== SEARCH PANDA / BUILDAH ====="
+command -v buildah || true
+command -v panda || true
+
+find / -maxdepth 4 \
+  \( -iname '*buildah*' -o -iname '*panda*' -o -iname '*plugin*' \) \
+  2>/dev/null | head -100
+
+echo "===== ENV VARIABLES ====="
+env | sort
 
 echo "===== WORKSPACE ====="
-ls -ld /harness
 ls -la /harness
-ls -l /harness/Dockerfile.probe
-cat /harness/Dockerfile.probe
-
-echo "===== BUILDAH ====="
-buildah --version
-buildah info
-
-echo "===== MINIMAL BUILDAH TEST ====="
-buildah from scratch
-buildah containers
-
-echo "===== ACTUAL BUILD TEST ====="
-buildah bud --log-level=debug \
-  -f /harness/Dockerfile.probe \
-  -t panda-probe \
-  /harness
