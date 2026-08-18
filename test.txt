@@ -1,18 +1,25 @@
 set -eux
 
-echo "=== ENV ==="
+echo "===== ENV ====="
 pwd
 whoami
 id
 
-echo "=== BUILDAH ==="
+echo "===== WORKSPACE ====="
+ls -ld /harness
+ls -la /harness
+ls -l /harness/Dockerfile.probe
+cat /harness/Dockerfile.probe
+
+echo "===== BUILDAH ====="
 buildah --version
 buildah info
 
-echo "=== MINIMAL BUILDAH TEST ==="
+echo "===== MINIMAL BUILDAH TEST ====="
 buildah from scratch
+buildah containers
 
-
+echo "===== ACTUAL BUILD TEST ====="
 buildah bud --log-level=debug \
   -f /harness/Dockerfile.probe \
   -t panda-probe \
