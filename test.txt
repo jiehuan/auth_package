@@ -1,27 +1,21 @@
 - step:
     type: Run
-    name: buildah_debug
-    identifier: buildah_debug
+    name: inspect_plugin
+    identifier: inspect_plugin
     spec:
       connectorRef: jfrog0122axio
       image: artifactory.platform.axaxl-cloud.com/toolingforge/plugins/xlc-panda-buildah:release-3.1.12
       shell: Sh
       command: |-
-        set -x
-        pwd; ls -la
-        echo "=== A. dockerignore 实际内容 ==="
-        cat .dockerignore 2>/dev/null || echo "(没有这个文件)"
+        echo "=== 这个 json 是什么 ==="
+        cat plugin-build-tool.json
 
-        echo "=== B. buildah 版本 ==="
-        buildah --version
+        echo "=== 镜像里有哪些可执行文件 ==="
+        ls -la /usr/local/bin /usr/bin /opt 2>/dev/null | head -60
 
-        echo "=== C. 能不能拉基础镜像 ==="
-        buildah pull artifactory.platform.axaxl-cloud.com/docker/node:22.19-alpine
+        echo "=== 找 panda / buildah 相关的东西 ==="
+        find / -maxdepth 4 \( -name "*panda*" -o -name "*buildah*" -o -name "*plugin*" \) \
+             -not -path "*/proc/*" 2>/dev/null | head -30
 
-        echo "=== D. 最小 Dockerfile,只有一行 FROM ==="
-        mkdir -p /tmp/min
-        echo "FROM artifactory.platform.axaxl-cloud.com/docker/node:22.19-alpine" > /tmp/min/Dockerfile
-        buildah bud -f /tmp/min/Dockerfile -t minimal:test /tmp/min
-
-        echo "=== E. 真实 Dockerfile,不加管道 ==="
-        buildah bud --log-level debug -f Dockerfile -t teampulse-app:test .
+        echo "=== 环境变量(plugin 靠 PLUGIN_* 传参) ==="
+        env | sort
