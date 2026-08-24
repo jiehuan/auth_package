@@ -1,0 +1,194 @@
+<!--
+    Alpha Vantage facade - API-level policy.
+
+    Apply at the API scope. One policy covers all 116 operations: the final path
+    segment of the inbound request is the Alpha Vantage `function` value, so the
+    mapping needs no per-operation configuration.
+
+    Prerequisites
+      - Named value `alphavantage-apikey`  (secret, ideally Key Vault-backed)
+      - Backend service URL: https://www.alphavantage.co
+
+    Note on escaping: policy expressions inside XML attributes must use &quot;
+    for inner double quotes, &amp;&amp; for &&, and &gt;= for >=.
+-->
+<policies>
+  <inbound>
+    <base />
+
+    <!-- ============================================================
+         1. Capture the function name before the URI is rewritten.
+            /alphavantage/v1/TIME_SERIES_DAILY  =>  TIME_SERIES_DAILY
+         ============================================================ -->
+    <set-variable name="avFunction"
+                  value="@(context.Request.OriginalUrl.Path.TrimEnd('/').Split('/').Last())" />
+
+    <!-- Defensive: reject anything that did not resolve to a function.
+         Without this, a malformed path forwards an empty function upstream. -->
+    <choose>
+      <when condition="@(string.IsNullOrEmpty((string)context.Variables[&quot;avFunction&quot;]))">
+        <return-response>
+          <set-status code="400" reason="Bad Request" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"statusCode":400,"message":"Unable to resolve an Alpha Vantage function from the request path."}</set-body>
+        </return-response>
+      </when>
+    </choose>
+
+    <!-- ============================================================
+         2. Collapse every path back onto the vendor's single route.
+            copy-unmatched-params carries symbol, interval, outputsize, etc.
+         ============================================================ -->
+    <rewrite-uri template="/query" copy-unmatched-params="true" />
+
+    <set-query-parameter name="function" exists-action="override">
+      <value>@((string)context.Variables["avFunction"])</value>
+    </set-query-parameter>
+
+    <!-- ============================================================
+         3. Inject the upstream credential server-side.
+            exists-action="override" also strips any apikey the caller sent,
+            so a leaked vendor key cannot be smuggled through the gateway.
+         ============================================================ -->
+    <set-query-parameter name="apikey" exists-action="override">
+      <value>{{alphavantage-apikey}}</value>
+    </set-query-parameter>
+
+    <!-- Never forward the consumer's APIM subscription key upstream. -->
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+
+    <!-- ============================================================
+         4. Protect the upstream quota.
+            The vendor bills per call and the free tier allows only 25/day,
+            so the gateway limit must sit BELOW your contracted plan.
+         ============================================================ -->
+    <rate-limit-by-key calls="60" renewal-period="60"
+                       counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)"
+                       remaining-calls-header-name="X-RateLimit-Remaining"
+                       retry-after-header-name="Retry-After" />
+
+    <quota-by-key calls="10000" renewal-period="86400"
+                  counter-key="@(context.Subscription?.Id ?? context.Request.IpAddress)" />
+
+    <!-- ============================================================
+         5. Cache aggressively. Daily, weekly, and monthly series change at
+            most once per session, so caching is the largest single lever on
+            cost. Realtime, intraday, and quote traffic is excluded.
+         ============================================================ -->
+    <choose>
+      <when condition="@{
+              var fn = (string)context.Variables[&quot;avFunction&quot;];
+              var ent = context.Request.Url.Query.GetValueOrDefault(&quot;entitlement&quot;, &quot;&quot;);
+              return string.IsNullOrEmpty(ent)
+                     &amp;&amp; !fn.Contains(&quot;INTRADAY&quot;)
+                     &amp;&amp; !fn.Contains(&quot;REALTIME&quot;)
+                     &amp;&amp; fn != &quot;GLOBAL_QUOTE&quot;
+                     &amp;&amp; fn != &quot;MARKET_STATUS&quot;;
+            }">
+        <cache-lookup vary-by-developer="false"
+                      vary-by-developer-groups="false"
+                      downstream-caching-type="none">
+          <vary-by-query-parameter>function</vary-by-query-parameter>
+          <vary-by-query-parameter>symbol</vary-by-query-parameter>
+          <vary-by-query-parameter>interval</vary-by-query-parameter>
+          <vary-by-query-parameter>outputsize</vary-by-query-parameter>
+          <vary-by-query-parameter>datatype</vary-by-query-parameter>
+          <vary-by-query-parameter>time_period</vary-by-query-parameter>
+          <vary-by-query-parameter>series_type</vary-by-query-parameter>
+          <vary-by-query-parameter>month</vary-by-query-parameter>
+          <vary-by-query-parameter>from_symbol</vary-by-query-parameter>
+          <vary-by-query-parameter>to_symbol</vary-by-query-parameter>
+          <vary-by-query-parameter>market</vary-by-query-parameter>
+          <vary-by-query-parameter>keywords</vary-by-query-parameter>
+        </cache-lookup>
+      </when>
+    </choose>
+  </inbound>
+
+  <backend>
+    <forward-request timeout="60" />
+  </backend>
+
+  <outbound>
+    <base />
+
+    <!-- ============================================================
+         6. Alpha Vantage returns HTTP 200 for throttling, entitlement
+            failures, and validation errors alike, signalling the real
+            outcome only in the body. Left alone, every downstream retry
+            loop and circuit breaker sees a healthy 200 and misbehaves.
+
+            Normalise into "code|message|upstream" once, then emit.
+         ============================================================ -->
+    <set-variable name="avFault" value="@{
+        if (context.Response.StatusCode != 200) { return &quot;&quot;; }
+        var ct = context.Response.Headers.GetValueOrDefault(&quot;Content-Type&quot;, &quot;&quot;);
+        if (ct.IndexOf(&quot;json&quot;, System.StringComparison.OrdinalIgnoreCase) &lt; 0) { return &quot;&quot;; }
+        try {
+          var b = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);
+          if (b[&quot;Note&quot;] != null) {
+            return &quot;429|Upstream rate limit reached. Retry after the current window closes.|&quot;
+                   + b[&quot;Note&quot;].ToString();
+          }
+          if (b[&quot;Information&quot;] != null) {
+            var info = b[&quot;Information&quot;].ToString();
+            if (info.IndexOf(&quot;premium&quot;, System.StringComparison.OrdinalIgnoreCase) &gt;= 0) {
+              return &quot;403|This operation requires a premium upstream entitlement.|&quot; + info;
+            }
+            return &quot;429|Upstream quota or rate limit reached.|&quot; + info;
+          }
+          if (b[&quot;Error Message&quot;] != null) {
+            return &quot;400|Invalid parameter combination for this operation.|&quot;
+                   + b[&quot;Error Message&quot;].ToString();
+          }
+          return &quot;&quot;;
+        } catch { return &quot;&quot;; }
+      }" />
+
+    <choose>
+      <when condition="@(((string)context.Variables[&quot;avFault&quot;]).Length &gt; 0)">
+        <return-response>
+          <set-status code="@(int.Parse(((string)context.Variables[&quot;avFault&quot;]).Split('|')[0]))" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>@{
+              var parts = ((string)context.Variables[&quot;avFault&quot;]).Split('|');
+              return new JObject(
+                new JProperty(&quot;statusCode&quot;, int.Parse(parts[0])),
+                new JProperty(&quot;message&quot;, parts[1]),
+                new JProperty(&quot;upstream&quot;, parts.Length &gt; 2 ? parts[2] : &quot;&quot;)
+              ).ToString();
+            }</set-body>
+        </return-response>
+      </when>
+    </choose>
+
+    <!-- Only genuine successes reach the cache; see the inbound gate. -->
+    <choose>
+      <when condition="@(context.Response.StatusCode == 200)">
+        <cache-store duration="3600" />
+      </when>
+    </choose>
+
+    <!-- Do not leak upstream infrastructure details to consumers. -->
+    <set-header name="Server" exists-action="delete" />
+    <set-header name="X-Powered-By" exists-action="delete" />
+  </outbound>
+
+  <on-error>
+    <base />
+    <set-header name="Content-Type" exists-action="override">
+      <value>application/json</value>
+    </set-header>
+    <set-body>@{
+        return new JObject(
+          new JProperty(&quot;statusCode&quot;, context.Response != null ? context.Response.StatusCode : 500),
+          new JProperty(&quot;message&quot;, context.LastError != null ? context.LastError.Message : &quot;Unexpected gateway error.&quot;),
+          new JProperty(&quot;requestId&quot;, context.RequestId)
+        ).ToString();
+      }</set-body>
+  </on-error>
+</policies>

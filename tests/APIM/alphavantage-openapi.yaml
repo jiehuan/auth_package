@@ -1,0 +1,5223 @@
+openapi: 3.0.1
+info:
+  title: Alpha Vantage Market Data API
+  version: 1.0.0
+  description: 'Facade over the Alpha Vantage market data service, exposed through API Management.
+
+
+    ## How this differs from the vendor API
+
+
+    Alpha Vantage serves every capability from a single backend route, `GET https://www.alphavantage.co/query`,
+    discriminated by a `function` query parameter. OpenAPI cannot model many operations on one path and
+    method, so this specification promotes each `function` to its own path — `/TIME_SERIES_DAILY`, `/GLOBAL_QUOTE`,
+    and so on. An API Management policy rewrites the request back to the vendor shape, so path segments
+    map one-to-one onto the values documented at https://www.alphavantage.co/documentation/.
+
+
+    ## Authentication
+
+
+    Callers authenticate to API Management with a subscription key. The upstream `apikey` is held as a
+    named value in API Management and injected server-side; it is never accepted from, nor returned to,
+    the caller. Do not send an `apikey` query parameter — it will be overwritten.
+
+
+    ## Error semantics worth knowing
+
+
+    The vendor returns HTTP 200 for validation failures and throttling alike, carrying an `Error Message`,
+    `Note`, or `Information` field in the body. The outbound policy inspects the payload and re-maps these
+    onto 400 and 429 so that standard HTTP client and retry handling behaves correctly.
+
+
+    ## Entitlements
+
+
+    Operations marked as requiring a premium subscription will fail against a free upstream key. Group
+    them into a separate API Management product so entitlement is enforced at the gateway rather than
+    surfacing as a confusing upstream message.
+
+
+    ## Market data compliance
+
+
+    Realtime and 15-minute delayed US market data is regulated by the exchanges, FINRA, and the SEC. Redistribution
+    beyond the licensed scope — including internal onward distribution in some cases — may require a separate
+    agreement. Confirm the licence terms before making `entitlement=realtime` operations broadly available.'
+  contact:
+    name: Alpha Vantage documentation
+    url: https://www.alphavantage.co/documentation/
+  termsOfService: https://www.alphavantage.co/terms_of_service/
+servers:
+- url: https://{apimHost}/alphavantage/v1
+  description: API Management gateway
+  variables:
+    apimHost:
+      default: apim.example.com
+      description: Your API Management gateway host.
+security:
+- apimSubscriptionKey: []
+tags:
+- name: Core Stock
+  description: Equity, ETF, and mutual fund time series, quotes, and lookup utilities.
+- name: Index Data
+  description: OHLC history for 200+ major market indices.
+- name: Options
+  description: Realtime and historical US options chains.
+- name: Alpha Intelligence
+  description: News sentiment, transcripts, movers, and insider activity.
+- name: Fundamental Data
+  description: Company profiles, financial statements, and corporate actions.
+- name: Forex
+  description: Physical currency exchange rates and FX time series.
+- name: Cryptocurrencies
+  description: Digital currency exchange rates and time series.
+- name: Commodities
+  description: Energy, metals, and agricultural commodity prices.
+- name: Economic Indicators
+  description: US macroeconomic series.
+- name: Technical Indicators
+  description: 50+ technical indicators computed on equity price series.
+paths:
+  /TIME_SERIES_INTRADAY:
+    get:
+      tags:
+      - Core Stock
+      summary: Intraday OHLCV time series
+      description: 'Current and 20+ years of historical intraday OHLCV candles for the specified equity,
+        covering pre-market and post-market sessions where applicable. Both raw (as-traded) and split/dividend-adjusted
+        values can be requested.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getTimeSeriesIntraday
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIntraday'
+      - $ref: '#/components/parameters/adjusted'
+      - $ref: '#/components/parameters/extendedHours'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/outputsize'
+      - $ref: '#/components/parameters/datatype'
+      - $ref: '#/components/parameters/entitlement'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TIME_SERIES_DAILY:
+    get:
+      tags:
+      - Core Stock
+      summary: Daily OHLCV time series
+      description: Raw (as-traded) daily OHLCV candles covering 20+ years of history. Use TIME_SERIES_DAILY_ADJUSTED
+        if you need adjusted closes and corporate-action detail.
+      operationId: getTimeSeriesDaily
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/outputsize'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TIME_SERIES_DAILY_ADJUSTED:
+    get:
+      tags:
+      - Core Stock
+      summary: Daily adjusted OHLCV time series
+      description: 'Daily OHLCV plus adjusted close and the historical split/dividend events behind the
+        adjustment, covering 20+ years of history.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getTimeSeriesDailyAdjusted
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/outputsize'
+      - $ref: '#/components/parameters/datatype'
+      - $ref: '#/components/parameters/entitlement'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TIME_SERIES_WEEKLY:
+    get:
+      tags:
+      - Core Stock
+      summary: Weekly OHLCV time series
+      description: Weekly OHLCV candles keyed on the last trading day of each week, covering 20+ years
+        of history.
+      operationId: getTimeSeriesWeekly
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TIME_SERIES_WEEKLY_ADJUSTED:
+    get:
+      tags:
+      - Core Stock
+      summary: Weekly adjusted OHLCV time series
+      description: Weekly OHLCV plus adjusted close and weekly dividend, covering 20+ years of history.
+      operationId: getTimeSeriesWeeklyAdjusted
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TIME_SERIES_MONTHLY:
+    get:
+      tags:
+      - Core Stock
+      summary: Monthly OHLCV time series
+      description: Monthly OHLCV candles keyed on the last trading day of each month, covering 20+ years
+        of history.
+      operationId: getTimeSeriesMonthly
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TIME_SERIES_MONTHLY_ADJUSTED:
+    get:
+      tags:
+      - Core Stock
+      summary: Monthly adjusted OHLCV time series
+      description: Monthly OHLCV plus adjusted close and monthly dividend, covering 20+ years of history.
+      operationId: getTimeSeriesMonthlyAdjusted
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /GLOBAL_QUOTE:
+    get:
+      tags:
+      - Core Stock
+      summary: Latest price and volume for one ticker
+      description: Lightweight quote for a single ticker. For many tickers at once use REALTIME_BULK_QUOTES,
+        which accepts up to 100 symbols per request.
+      operationId: getGlobalQuote
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      - $ref: '#/components/parameters/entitlement'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /REALTIME_BULK_QUOTES:
+    get:
+      tags:
+      - Core Stock
+      summary: Realtime quotes in bulk (up to 100 symbols)
+      description: 'Realtime quotes for US-traded symbols in bulk, covering regular and extended trading
+        hours. A high-throughput alternative to GLOBAL_QUOTE.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getRealtimeBulkQuotes
+      parameters:
+      - $ref: '#/components/parameters/symbolBulk'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /REALTIME_BULK_BID_ASK_PRICES:
+    get:
+      tags:
+      - Core Stock
+      summary: Realtime bid/ask prices in bulk (up to 100 symbols)
+      description: 'Top-of-book bid and ask prices for US-traded symbols in bulk, covering regular and
+        extended trading hours.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getRealtimeBulkBidAsk
+      parameters:
+      - $ref: '#/components/parameters/symbolBulk'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /SYMBOL_SEARCH:
+    get:
+      tags:
+      - Core Stock
+      summary: Ticker search
+      description: Best-matching symbols and market metadata for a keyword string, each with a match score.
+        Typically used to back an autocomplete experience.
+      operationId: searchSymbols
+      parameters:
+      - $ref: '#/components/parameters/keywords'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MARKET_STATUS:
+    get:
+      tags:
+      - Core Stock
+      summary: Global market open/close status
+      description: Current open-versus-closed status of major equity, FX, and cryptocurrency trading venues
+        worldwide.
+      operationId: getMarketStatus
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /INDEX_DATA:
+    get:
+      tags:
+      - Index Data
+      summary: Index OHLC time series
+      description: 'Decades of daily/weekly/monthly OHLC data for 200+ major indices. Well-known symbols
+        include `DJI` (Dow Jones Industrial Average), `SPX` (S&P 500), `COMP` (Nasdaq Composite), `NDX`
+        (Nasdaq-100), `VIX` (Cboe Volatility Index), and `RUT` (Russell 2000). Call INDEX_CATALOG for
+        the full symbol list.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getIndexData
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndex'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /INDEX_CATALOG:
+    get:
+      tags:
+      - Index Data
+      summary: Supported index symbols
+      description: Full list of supported index symbols with their long-form names.
+      operationId: getIndexCatalog
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /REALTIME_OPTIONS:
+    get:
+      tags:
+      - Options
+      summary: Realtime options chain
+      description: 'Realtime US options data covering the full chain for the specified underlying, with
+        optional Greeks and implied volatility.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getRealtimeOptions
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /HISTORICAL_OPTIONS:
+    get:
+      tags:
+      - Options
+      summary: Historical options chain
+      description: Historical US options chain for the specified underlying on a given trading day, including
+        Greeks and implied volatility.
+      operationId: getHistoricalOptions
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /NEWS_SENTIMENT:
+    get:
+      tags:
+      - Alpha Intelligence
+      summary: Market news and sentiment scores
+      description: Live and historical market news with article-level and ticker-level sentiment scoring,
+        filterable by ticker, topic, and time window.
+      operationId: getNewsSentiment
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /EARNINGS_CALL_TRANSCRIPT:
+    get:
+      tags:
+      - Alpha Intelligence
+      summary: Earnings call transcript
+      description: Transcript of a company earnings call for a given quarter, annotated with LLM-based
+        sentiment signals.
+      operationId: getEarningsCallTranscript
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TOP_GAINERS_LOSERS:
+    get:
+      tags:
+      - Alpha Intelligence
+      summary: Top gainers, losers, and most active tickers
+      description: Top 20 gainers, losers, and most actively traded tickers in the US market.
+      operationId: getTopGainersLosers
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /INSIDER_TRANSACTIONS:
+    get:
+      tags:
+      - Alpha Intelligence
+      summary: Insider transactions
+      description: Latest and historical insider transactions filed by key stakeholders of the specified
+        company.
+      operationId: getInsiderTransactions
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /OVERVIEW:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Company overview
+      description: Company profile and key financial ratios for the specified ticker.
+      operationId: getCompanyOverview
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ETF_PROFILE:
+    get:
+      tags:
+      - Fundamental Data
+      summary: ETF profile and holdings
+      description: Key ETF attributes — net assets, expense ratio, turnover — together with sector allocation
+        and the full holdings list.
+      operationId: getEtfProfile
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /DIVIDENDS:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Dividend history
+      description: Historical and declared future dividend distributions for the specified ticker.
+      operationId: getDividends
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /SPLITS:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Split history
+      description: Historical split events for the specified ticker.
+      operationId: getSplits
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /INCOME_STATEMENT:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Income statement
+      description: Annual and quarterly income statements, normalised to a consistent schema across issuers.
+      operationId: getIncomeStatement
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /BALANCE_SHEET:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Balance sheet
+      description: Annual and quarterly balance sheets, normalised to a consistent schema across issuers.
+      operationId: getBalanceSheet
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /CASH_FLOW:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Cash flow statement
+      description: Annual and quarterly cash flow statements, normalised to a consistent schema across
+        issuers.
+      operationId: getCashFlow
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /SHARES_OUTSTANDING:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Shares outstanding
+      description: Historical shares-outstanding figures for the specified ticker.
+      operationId: getSharesOutstanding
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /EARNINGS:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Earnings history
+      description: Annual and quarterly earnings (EPS) history, including reported versus estimated EPS
+        and surprise percentages.
+      operationId: getEarnings
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /EARNINGS_ESTIMATES:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Analyst earnings estimates
+      description: Forward-looking analyst EPS and revenue estimates for the specified ticker.
+      operationId: getEarningsEstimates
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /LISTING_STATUS:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Active and delisted listings
+      description: All active or delisted US stocks and ETFs, as of the latest trading day or a specified
+        date in history. Returns CSV.
+      operationId: getListingStatus
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /EARNINGS_CALENDAR:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Upcoming earnings calendar
+      description: Expected earnings dates for companies reporting in the next 3, 6, or 12 months. Returns
+        CSV.
+      operationId: getEarningsCalendar
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /IPO_CALENDAR:
+    get:
+      tags:
+      - Fundamental Data
+      summary: Upcoming IPO calendar
+      description: IPOs expected in the next three months. Returns CSV.
+      operationId: getIpoCalendar
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /CURRENCY_EXCHANGE_RATE:
+    get:
+      tags:
+      - Forex
+      summary: Realtime exchange rate
+      description: Realtime exchange rate for any pair of physical or digital currencies.
+      operationId: getCurrencyExchangeRate
+      parameters:
+      - $ref: '#/components/parameters/fromCurrency'
+      - $ref: '#/components/parameters/toCurrency'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /FX_INTRADAY:
+    get:
+      tags:
+      - Forex
+      summary: Intraday FX time series
+      description: 'Intraday OHLC candles for the specified currency pair.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getFxIntraday
+      parameters:
+      - $ref: '#/components/parameters/fromSymbol'
+      - $ref: '#/components/parameters/toSymbol'
+      - $ref: '#/components/parameters/intervalIntraday'
+      - $ref: '#/components/parameters/outputsize'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /FX_DAILY:
+    get:
+      tags:
+      - Forex
+      summary: Daily FX time series
+      description: Daily OHLC candles for the specified currency pair.
+      operationId: getFxDaily
+      parameters:
+      - $ref: '#/components/parameters/fromSymbol'
+      - $ref: '#/components/parameters/toSymbol'
+      - $ref: '#/components/parameters/outputsize'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /FX_WEEKLY:
+    get:
+      tags:
+      - Forex
+      summary: Weekly FX time series
+      description: Weekly OHLC candles for the specified currency pair.
+      operationId: getFxWeekly
+      parameters:
+      - $ref: '#/components/parameters/fromSymbol'
+      - $ref: '#/components/parameters/toSymbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /FX_MONTHLY:
+    get:
+      tags:
+      - Forex
+      summary: Monthly FX time series
+      description: Monthly OHLC candles for the specified currency pair.
+      operationId: getFxMonthly
+      parameters:
+      - $ref: '#/components/parameters/fromSymbol'
+      - $ref: '#/components/parameters/toSymbol'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /CRYPTO_INTRADAY:
+    get:
+      tags:
+      - Cryptocurrencies
+      summary: Intraday crypto time series
+      description: 'Intraday OHLCV candles for the specified digital currency, quoted in the chosen market.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getCryptoIntraday
+      parameters:
+      - $ref: '#/components/parameters/cryptoSymbol'
+      - $ref: '#/components/parameters/market'
+      - $ref: '#/components/parameters/intervalIntraday'
+      - $ref: '#/components/parameters/outputsize'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /DIGITAL_CURRENCY_DAILY:
+    get:
+      tags:
+      - Cryptocurrencies
+      summary: Daily crypto time series
+      description: Daily OHLCV candles for the specified digital currency, quoted in the chosen market.
+      operationId: getCryptoDaily
+      parameters:
+      - $ref: '#/components/parameters/cryptoSymbol'
+      - $ref: '#/components/parameters/market'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /DIGITAL_CURRENCY_WEEKLY:
+    get:
+      tags:
+      - Cryptocurrencies
+      summary: Weekly crypto time series
+      description: Weekly OHLCV candles for the specified digital currency, quoted in the chosen market.
+      operationId: getCryptoWeekly
+      parameters:
+      - $ref: '#/components/parameters/cryptoSymbol'
+      - $ref: '#/components/parameters/market'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /DIGITAL_CURRENCY_MONTHLY:
+    get:
+      tags:
+      - Cryptocurrencies
+      summary: Monthly crypto time series
+      description: Monthly OHLCV candles for the specified digital currency, quoted in the chosen market.
+      operationId: getCryptoMonthly
+      parameters:
+      - $ref: '#/components/parameters/cryptoSymbol'
+      - $ref: '#/components/parameters/market'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /WTI:
+    get:
+      tags:
+      - Commodities
+      summary: Crude Oil (WTI) prices
+      description: West Texas Intermediate crude oil prices.
+      operationId: getWti
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /BRENT:
+    get:
+      tags:
+      - Commodities
+      summary: Crude Oil (Brent) prices
+      description: Brent crude oil prices.
+      operationId: getBrent
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /NATURAL_GAS:
+    get:
+      tags:
+      - Commodities
+      summary: Natural gas prices
+      description: Henry Hub natural gas spot prices.
+      operationId: getNaturalGas
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /COPPER:
+    get:
+      tags:
+      - Commodities
+      summary: Copper prices
+      description: Global copper prices.
+      operationId: getCopper
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ALUMINUM:
+    get:
+      tags:
+      - Commodities
+      summary: Aluminum prices
+      description: Global aluminum prices.
+      operationId: getAluminum
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /WHEAT:
+    get:
+      tags:
+      - Commodities
+      summary: Wheat prices
+      description: Global wheat prices.
+      operationId: getWheat
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /CORN:
+    get:
+      tags:
+      - Commodities
+      summary: Corn prices
+      description: Global corn prices.
+      operationId: getCorn
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /COTTON:
+    get:
+      tags:
+      - Commodities
+      summary: Cotton prices
+      description: Global cotton prices.
+      operationId: getCotton
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /SUGAR:
+    get:
+      tags:
+      - Commodities
+      summary: Sugar prices
+      description: Global sugar prices.
+      operationId: getSugar
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /COFFEE:
+    get:
+      tags:
+      - Commodities
+      summary: Coffee prices
+      description: Global coffee prices.
+      operationId: getCoffee
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ALL_COMMODITIES:
+    get:
+      tags:
+      - Commodities
+      summary: Global commodities index
+      description: Global price index of all commodities.
+      operationId: getAllCommodities
+      parameters:
+      - $ref: '#/components/parameters/commodityInterval'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /REAL_GDP:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Real GDP
+      description: Annual and quarterly real GDP of the United States.
+      operationId: getRealGdp
+      parameters:
+      - $ref: '#/components/parameters/intervalEconomic'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /REAL_GDP_PER_CAPITA:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Real GDP per capita
+      description: Quarterly real GDP per capita of the United States.
+      operationId: getRealGdpPerCapita
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TREASURY_YIELD:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Treasury yield
+      description: Daily, weekly, and monthly US Treasury yield for a given constant maturity.
+      operationId: getTreasuryYield
+      parameters:
+      - $ref: '#/components/parameters/intervalEconomic'
+      - $ref: '#/components/parameters/datatype'
+      - name: maturity
+        in: query
+        required: false
+        description: Constant maturity of the Treasury security.
+        schema:
+          type: string
+          enum:
+          - 3month
+          - 2year
+          - 5year
+          - 7year
+          - 10year
+          - 30year
+          default: 10year
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /FEDERAL_FUNDS_RATE:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Federal funds rate
+      description: Daily, weekly, and monthly US federal funds (interest) rate.
+      operationId: getFederalFundsRate
+      parameters:
+      - $ref: '#/components/parameters/intervalEconomic'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /CPI:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Consumer Price Index
+      description: Monthly and semiannual US Consumer Price Index, a widely used inflation gauge.
+      operationId: getCpi
+      parameters:
+      - $ref: '#/components/parameters/intervalEconomic'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /INFLATION:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Inflation rate
+      description: Annual US inflation rate as measured by consumer prices.
+      operationId: getInflation
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /RETAIL_SALES:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Retail sales
+      description: 'Monthly US Advance Retail Sales: Retail Trade and Food Services.'
+      operationId: getRetailSales
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /DURABLES:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Durable goods orders
+      description: Monthly US manufacturers' new orders for durable goods.
+      operationId: getDurableGoods
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /UNEMPLOYMENT:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Unemployment rate
+      description: Monthly US unemployment rate.
+      operationId: getUnemployment
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /NONFARM_PAYROLL:
+    get:
+      tags:
+      - Economic Indicators
+      summary: Nonfarm payroll
+      description: 'Monthly US All Employees: Total Nonfarm figure, commonly known as Total Nonfarm Payroll.'
+      operationId: getNonfarmPayroll
+      parameters:
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /SMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: SMA — Simple Moving Average
+      description: Simple Moving Average values for the specified equity and interval.
+      operationId: getIndicatorSma
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /EMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: EMA — Exponential Moving Average
+      description: Exponential Moving Average values for the specified equity and interval.
+      operationId: getIndicatorEma
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /WMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: WMA — Weighted Moving Average
+      description: Weighted Moving Average values for the specified equity and interval.
+      operationId: getIndicatorWma
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /DEMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: DEMA — Double Exponential Moving Average
+      description: Double Exponential Moving Average values for the specified equity and interval.
+      operationId: getIndicatorDema
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TEMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: TEMA — Triple Exponential Moving Average
+      description: Triple Exponential Moving Average values for the specified equity and interval.
+      operationId: getIndicatorTema
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TRIMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: TRIMA — Triangular Moving Average
+      description: Triangular Moving Average values for the specified equity and interval.
+      operationId: getIndicatorTrima
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /KAMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: KAMA — Kaufman Adaptive Moving Average
+      description: Kaufman Adaptive Moving Average values for the specified equity and interval.
+      operationId: getIndicatorKama
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /T3:
+    get:
+      tags:
+      - Technical Indicators
+      summary: T3 — Triple Exponential Moving Average (T3)
+      description: Triple Exponential Moving Average (T3) values for the specified equity and interval.
+      operationId: getIndicatorT3
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /VWAP:
+    get:
+      tags:
+      - Technical Indicators
+      summary: VWAP — Volume Weighted Average Price
+      description: 'Volume Weighted Average Price values for the specified equity and interval.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getIndicatorVwap
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIntraday'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MAMA:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MAMA — MESA Adaptive Moving Average
+      description: MESA Adaptive Moving Average values for the specified equity and interval.
+      operationId: getIndicatorMama
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - name: fastlimit
+        in: query
+        required: false
+        description: Fast limit of the MAMA calculation.
+        schema:
+          type: number
+          default: 0.01
+      - name: slowlimit
+        in: query
+        required: false
+        description: Slow limit of the MAMA calculation.
+        schema:
+          type: number
+          default: 0.01
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MACD:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MACD — Moving Average Convergence/Divergence
+      description: 'Moving Average Convergence/Divergence values for the specified equity and interval.
+
+
+        > **Entitlement:** requires a premium Alpha Vantage subscription upstream. Restrict this operation
+        to an entitled APIM product.'
+      operationId: getIndicatorMacd
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - name: fastperiod
+        in: query
+        required: false
+        description: Fast EMA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 12
+      - name: slowperiod
+        in: query
+        required: false
+        description: Slow EMA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 26
+      - name: signalperiod
+        in: query
+        required: false
+        description: Signal line EMA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 9
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MACDEXT:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MACDEXT — MACD with controllable moving average type
+      description: MACD with controllable moving average type values for the specified equity and interval.
+      operationId: getIndicatorMacdext
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - name: fastperiod
+        in: query
+        required: false
+        description: Fast MA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 12
+      - name: slowperiod
+        in: query
+        required: false
+        description: Slow MA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 26
+      - name: signalperiod
+        in: query
+        required: false
+        description: Signal line MA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 9
+      - name: fastmatype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - name: slowmatype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - name: signalmatype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /STOCH:
+    get:
+      tags:
+      - Technical Indicators
+      summary: STOCH — Stochastic Oscillator
+      description: Stochastic Oscillator values for the specified equity and interval.
+      operationId: getIndicatorStoch
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - name: fastkperiod
+        in: query
+        required: false
+        description: Time period of the fast %K line.
+        schema:
+          type: integer
+          minimum: 1
+          default: 5
+      - name: slowkperiod
+        in: query
+        required: false
+        description: Time period of the slow %K line.
+        schema:
+          type: integer
+          minimum: 1
+          default: 3
+      - name: slowdperiod
+        in: query
+        required: false
+        description: Time period of the slow %D line.
+        schema:
+          type: integer
+          minimum: 1
+          default: 3
+      - name: slowkmatype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - name: slowdmatype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /STOCHF:
+    get:
+      tags:
+      - Technical Indicators
+      summary: STOCHF — Stochastic Fast
+      description: Stochastic Fast values for the specified equity and interval.
+      operationId: getIndicatorStochf
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - name: fastkperiod
+        in: query
+        required: false
+        description: Time period of the fast %K line.
+        schema:
+          type: integer
+          minimum: 1
+          default: 5
+      - name: fastdperiod
+        in: query
+        required: false
+        description: Time period of the fast %D line.
+        schema:
+          type: integer
+          minimum: 1
+          default: 3
+      - name: fastdmatype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /RSI:
+    get:
+      tags:
+      - Technical Indicators
+      summary: RSI — Relative Strength Index
+      description: Relative Strength Index values for the specified equity and interval.
+      operationId: getIndicatorRsi
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /STOCHRSI:
+    get:
+      tags:
+      - Technical Indicators
+      summary: STOCHRSI — Stochastic Relative Strength Index
+      description: Stochastic Relative Strength Index values for the specified equity and interval.
+      operationId: getIndicatorStochrsi
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - name: fastkperiod
+        in: query
+        required: false
+        description: Time period of the fast %K line.
+        schema:
+          type: integer
+          minimum: 1
+          default: 5
+      - name: fastdperiod
+        in: query
+        required: false
+        description: Time period of the fast %D line.
+        schema:
+          type: integer
+          minimum: 1
+          default: 3
+      - name: fastdmatype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /WILLR:
+    get:
+      tags:
+      - Technical Indicators
+      summary: WILLR — Williams %R
+      description: Williams %R values for the specified equity and interval.
+      operationId: getIndicatorWillr
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ADX:
+    get:
+      tags:
+      - Technical Indicators
+      summary: ADX — Average Directional Movement Index
+      description: Average Directional Movement Index values for the specified equity and interval.
+      operationId: getIndicatorAdx
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ADXR:
+    get:
+      tags:
+      - Technical Indicators
+      summary: ADXR — Average Directional Movement Index Rating
+      description: Average Directional Movement Index Rating values for the specified equity and interval.
+      operationId: getIndicatorAdxr
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /APO:
+    get:
+      tags:
+      - Technical Indicators
+      summary: APO — Absolute Price Oscillator
+      description: Absolute Price Oscillator values for the specified equity and interval.
+      operationId: getIndicatorApo
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - name: fastperiod
+        in: query
+        required: false
+        description: Fast MA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 12
+      - name: slowperiod
+        in: query
+        required: false
+        description: Slow MA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 26
+      - name: matype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /PPO:
+    get:
+      tags:
+      - Technical Indicators
+      summary: PPO — Percentage Price Oscillator
+      description: Percentage Price Oscillator values for the specified equity and interval.
+      operationId: getIndicatorPpo
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - name: fastperiod
+        in: query
+        required: false
+        description: Fast MA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 12
+      - name: slowperiod
+        in: query
+        required: false
+        description: Slow MA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 26
+      - name: matype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MOM:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MOM — Momentum
+      description: Momentum values for the specified equity and interval.
+      operationId: getIndicatorMom
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /BOP:
+    get:
+      tags:
+      - Technical Indicators
+      summary: BOP — Balance of Power
+      description: Balance of Power values for the specified equity and interval.
+      operationId: getIndicatorBop
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /CCI:
+    get:
+      tags:
+      - Technical Indicators
+      summary: CCI — Commodity Channel Index
+      description: Commodity Channel Index values for the specified equity and interval.
+      operationId: getIndicatorCci
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /CMO:
+    get:
+      tags:
+      - Technical Indicators
+      summary: CMO — Chande Momentum Oscillator
+      description: Chande Momentum Oscillator values for the specified equity and interval.
+      operationId: getIndicatorCmo
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ROC:
+    get:
+      tags:
+      - Technical Indicators
+      summary: ROC — Rate of Change
+      description: Rate of Change values for the specified equity and interval.
+      operationId: getIndicatorRoc
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ROCR:
+    get:
+      tags:
+      - Technical Indicators
+      summary: ROCR — Rate of Change Ratio
+      description: Rate of Change Ratio values for the specified equity and interval.
+      operationId: getIndicatorRocr
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /AROON:
+    get:
+      tags:
+      - Technical Indicators
+      summary: AROON — Aroon
+      description: Aroon values for the specified equity and interval.
+      operationId: getIndicatorAroon
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /AROONOSC:
+    get:
+      tags:
+      - Technical Indicators
+      summary: AROONOSC — Aroon Oscillator
+      description: Aroon Oscillator values for the specified equity and interval.
+      operationId: getIndicatorAroonosc
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MFI:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MFI — Money Flow Index
+      description: Money Flow Index values for the specified equity and interval.
+      operationId: getIndicatorMfi
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TRIX:
+    get:
+      tags:
+      - Technical Indicators
+      summary: TRIX — 1-day Rate of Change of a Triple Smooth EMA
+      description: 1-day Rate of Change of a Triple Smooth EMA values for the specified equity and interval.
+      operationId: getIndicatorTrix
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ULTOSC:
+    get:
+      tags:
+      - Technical Indicators
+      summary: ULTOSC — Ultimate Oscillator
+      description: Ultimate Oscillator values for the specified equity and interval.
+      operationId: getIndicatorUltosc
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - name: timeperiod1
+        in: query
+        required: false
+        description: First time period for the indicator.
+        schema:
+          type: integer
+          minimum: 1
+          default: 7
+      - name: timeperiod2
+        in: query
+        required: false
+        description: Second time period for the indicator.
+        schema:
+          type: integer
+          minimum: 1
+          default: 14
+      - name: timeperiod3
+        in: query
+        required: false
+        description: Third time period for the indicator.
+        schema:
+          type: integer
+          minimum: 1
+          default: 28
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /DX:
+    get:
+      tags:
+      - Technical Indicators
+      summary: DX — Directional Movement Index
+      description: Directional Movement Index values for the specified equity and interval.
+      operationId: getIndicatorDx
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MINUS_DI:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MINUS_DI — Minus Directional Indicator
+      description: Minus Directional Indicator values for the specified equity and interval.
+      operationId: getIndicatorMinusDi
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /PLUS_DI:
+    get:
+      tags:
+      - Technical Indicators
+      summary: PLUS_DI — Plus Directional Indicator
+      description: Plus Directional Indicator values for the specified equity and interval.
+      operationId: getIndicatorPlusDi
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MINUS_DM:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MINUS_DM — Minus Directional Movement
+      description: Minus Directional Movement values for the specified equity and interval.
+      operationId: getIndicatorMinusDm
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /PLUS_DM:
+    get:
+      tags:
+      - Technical Indicators
+      summary: PLUS_DM — Plus Directional Movement
+      description: Plus Directional Movement values for the specified equity and interval.
+      operationId: getIndicatorPlusDm
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /BBANDS:
+    get:
+      tags:
+      - Technical Indicators
+      summary: BBANDS — Bollinger Bands
+      description: Bollinger Bands values for the specified equity and interval.
+      operationId: getIndicatorBbands
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - name: nbdevup
+        in: query
+        required: false
+        description: Standard deviation multiplier of the upper band.
+        schema:
+          type: integer
+          minimum: 1
+          default: 2
+      - name: nbdevdn
+        in: query
+        required: false
+        description: Standard deviation multiplier of the lower band.
+        schema:
+          type: integer
+          minimum: 1
+          default: 2
+      - name: matype
+        in: query
+        required: false
+        description: 'Moving average type: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=T3, 7=KAMA,
+          8=MAMA.'
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 8
+          default: 0
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MIDPOINT:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MIDPOINT — MidPoint over period
+      description: MidPoint over period values for the specified equity and interval.
+      operationId: getIndicatorMidpoint
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /MIDPRICE:
+    get:
+      tags:
+      - Technical Indicators
+      summary: MIDPRICE — Midpoint Price over period
+      description: Midpoint Price over period values for the specified equity and interval.
+      operationId: getIndicatorMidprice
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /SAR:
+    get:
+      tags:
+      - Technical Indicators
+      summary: SAR — Parabolic SAR
+      description: Parabolic SAR values for the specified equity and interval.
+      operationId: getIndicatorSar
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - name: acceleration
+        in: query
+        required: false
+        description: Acceleration factor.
+        schema:
+          type: number
+          default: 0.01
+      - name: maximum
+        in: query
+        required: false
+        description: Acceleration factor maximum value.
+        schema:
+          type: number
+          default: 0.2
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /TRANGE:
+    get:
+      tags:
+      - Technical Indicators
+      summary: TRANGE — True Range
+      description: True Range values for the specified equity and interval.
+      operationId: getIndicatorTrange
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ATR:
+    get:
+      tags:
+      - Technical Indicators
+      summary: ATR — Average True Range
+      description: Average True Range values for the specified equity and interval.
+      operationId: getIndicatorAtr
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /NATR:
+    get:
+      tags:
+      - Technical Indicators
+      summary: NATR — Normalized Average True Range
+      description: Normalized Average True Range values for the specified equity and interval.
+      operationId: getIndicatorNatr
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/timePeriod'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /AD:
+    get:
+      tags:
+      - Technical Indicators
+      summary: AD — Chaikin A/D Line
+      description: Chaikin A/D Line values for the specified equity and interval.
+      operationId: getIndicatorAd
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /ADOSC:
+    get:
+      tags:
+      - Technical Indicators
+      summary: ADOSC — Chaikin A/D Oscillator
+      description: Chaikin A/D Oscillator values for the specified equity and interval.
+      operationId: getIndicatorAdosc
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - name: fastperiod
+        in: query
+        required: false
+        description: Fast EMA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 3
+      - name: slowperiod
+        in: query
+        required: false
+        description: Slow EMA period.
+        schema:
+          type: integer
+          minimum: 1
+          default: 10
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /OBV:
+    get:
+      tags:
+      - Technical Indicators
+      summary: OBV — On Balance Volume
+      description: On Balance Volume values for the specified equity and interval.
+      operationId: getIndicatorObv
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /HT_TRENDLINE:
+    get:
+      tags:
+      - Technical Indicators
+      summary: HT_TRENDLINE — Hilbert Transform - Instantaneous Trendline
+      description: Hilbert Transform - Instantaneous Trendline values for the specified equity and interval.
+      operationId: getIndicatorHtTrendline
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /HT_SINE:
+    get:
+      tags:
+      - Technical Indicators
+      summary: HT_SINE — Hilbert Transform - Sine Wave
+      description: Hilbert Transform - Sine Wave values for the specified equity and interval.
+      operationId: getIndicatorHtSine
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /HT_TRENDMODE:
+    get:
+      tags:
+      - Technical Indicators
+      summary: HT_TRENDMODE — Hilbert Transform - Trend vs Cycle Mode
+      description: Hilbert Transform - Trend vs Cycle Mode values for the specified equity and interval.
+      operationId: getIndicatorHtTrendmode
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /HT_DCPERIOD:
+    get:
+      tags:
+      - Technical Indicators
+      summary: HT_DCPERIOD — Hilbert Transform - Dominant Cycle Period
+      description: Hilbert Transform - Dominant Cycle Period values for the specified equity and interval.
+      operationId: getIndicatorHtDcperiod
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /HT_DCPHASE:
+    get:
+      tags:
+      - Technical Indicators
+      summary: HT_DCPHASE — Hilbert Transform - Dominant Cycle Phase
+      description: Hilbert Transform - Dominant Cycle Phase values for the specified equity and interval.
+      operationId: getIndicatorHtDcphase
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+  /HT_PHASOR:
+    get:
+      tags:
+      - Technical Indicators
+      summary: HT_PHASOR — Hilbert Transform - Phasor Components
+      description: Hilbert Transform - Phasor Components values for the specified equity and interval.
+      operationId: getIndicatorHtPhasor
+      parameters:
+      - $ref: '#/components/parameters/symbol'
+      - $ref: '#/components/parameters/intervalIndicator'
+      - $ref: '#/components/parameters/seriesType'
+      - $ref: '#/components/parameters/month'
+      - $ref: '#/components/parameters/datatype'
+      responses:
+        '200':
+          description: Success. Note that Alpha Vantage also returns HTTP 200 for rate-limit and validation
+            failures with an explanatory body; the APIM outbound policy maps those to 4xx/429.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericPayload'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Missing or invalid APIM subscription key.
+        '429':
+          description: Rate limit or daily quota exceeded, at the APIM tier or upstream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Upstream unavailable.
+components:
+  securitySchemes:
+    apimSubscriptionKey:
+      type: apiKey
+      name: Ocp-Apim-Subscription-Key
+      in: header
+      description: API Management subscription key. The upstream vendor key is injected by the gateway.
+  parameters:
+    symbol:
+      name: symbol
+      in: query
+      required: true
+      description: Ticker of the equity, e.g. `IBM`. Non-US listings use a suffix, e.g. `TSCO.LON`, `RELIANCE.BSE`,
+        `600104.SHH`.
+      schema:
+        type: string
+      example: IBM
+    symbolBulk:
+      name: symbol
+      in: query
+      required: true
+      description: Up to 100 comma-separated symbols. Symbols beyond the first 100 are ignored.
+      schema:
+        type: string
+      example: MSFT,AAPL,IBM
+    keywords:
+      name: keywords
+      in: query
+      required: true
+      description: Free-text search string.
+      schema:
+        type: string
+      example: microsoft
+    intervalIntraday:
+      name: interval
+      in: query
+      required: true
+      description: Spacing between consecutive data points.
+      schema:
+        type: string
+        enum:
+        - 1min
+        - 5min
+        - 15min
+        - 30min
+        - 60min
+      example: 5min
+    intervalIndex:
+      name: interval
+      in: query
+      required: true
+      description: Temporal resolution of the index time series.
+      schema:
+        type: string
+        enum:
+        - daily
+        - weekly
+        - monthly
+      example: weekly
+    intervalIndicator:
+      name: interval
+      in: query
+      required: true
+      description: Spacing between consecutive data points in the indicator series.
+      schema:
+        type: string
+        enum:
+        - 1min
+        - 5min
+        - 15min
+        - 30min
+        - 60min
+        - daily
+        - weekly
+        - monthly
+      example: daily
+    intervalEconomic:
+      name: interval
+      in: query
+      required: false
+      description: Reporting frequency.
+      schema:
+        type: string
+        enum:
+        - daily
+        - weekly
+        - monthly
+        - quarterly
+        - annual
+    month:
+      name: month
+      in: query
+      required: false
+      description: Query a specific historical month in `YYYY-MM` format. Any month from `2000-01` onward
+        is supported. Intraday resolutions only.
+      schema:
+        type: string
+        pattern: ^[0-9]{4}-(0[1-9]|1[0-2])$
+      example: 2009-01
+    outputsize:
+      name: outputsize
+      in: query
+      required: false
+      description: '`compact` returns the latest 100 points; `full` returns the complete series. `full`
+        requires a premium upstream key on several endpoints.'
+      schema:
+        type: string
+        enum:
+        - compact
+        - full
+        default: compact
+    datatype:
+      name: datatype
+      in: query
+      required: false
+      description: Response encoding. `csv` changes the response media type to `text/csv`.
+      schema:
+        type: string
+        enum:
+        - json
+        - csv
+        default: json
+    adjusted:
+      name: adjusted
+      in: query
+      required: false
+      description: When `true` the series is adjusted for historical splits and dividends.
+      schema:
+        type: boolean
+        default: true
+    extendedHours:
+      name: extended_hours
+      in: query
+      required: false
+      description: When `true` the series includes pre-market and post-market bars (04:00-20:00 ET for
+        US markets).
+      schema:
+        type: boolean
+        default: true
+    entitlement:
+      name: entitlement
+      in: query
+      required: false
+      description: Controls data freshness. Omit for end-of-day data. `realtime` and `delayed` require
+        an entitled upstream subscription and are subject to exchange/FINRA/SEC market-data rules.
+      schema:
+        type: string
+        enum:
+        - realtime
+        - delayed
+    seriesType:
+      name: series_type
+      in: query
+      required: true
+      description: Price series the indicator is computed on.
+      schema:
+        type: string
+        enum:
+        - close
+        - open
+        - high
+        - low
+      example: close
+    timePeriod:
+      name: time_period
+      in: query
+      required: true
+      description: Number of data points used to calculate each value.
+      schema:
+        type: integer
+        minimum: 1
+      example: 60
+    fromCurrency:
+      name: from_currency
+      in: query
+      required: true
+      description: Source currency; accepts both physical (`USD`) and digital (`BTC`) currency codes.
+      schema:
+        type: string
+      example: USD
+    toCurrency:
+      name: to_currency
+      in: query
+      required: true
+      description: Destination currency; accepts both physical and digital currency codes.
+      schema:
+        type: string
+      example: JPY
+    fromSymbol:
+      name: from_symbol
+      in: query
+      required: true
+      description: Base currency of the FX pair, as a three-letter code.
+      schema:
+        type: string
+      example: EUR
+    toSymbol:
+      name: to_symbol
+      in: query
+      required: true
+      description: Quote currency of the FX pair, as a three-letter code.
+      schema:
+        type: string
+      example: USD
+    cryptoSymbol:
+      name: symbol
+      in: query
+      required: true
+      description: Digital currency code, e.g. `BTC`.
+      schema:
+        type: string
+      example: BTC
+    market:
+      name: market
+      in: query
+      required: true
+      description: Exchange market to quote the digital currency in, e.g. `USD`, `EUR`, `CNY`.
+      schema:
+        type: string
+      example: USD
+    commodityInterval:
+      name: interval
+      in: query
+      required: false
+      description: Reporting frequency for the commodity series.
+      schema:
+        type: string
+        enum:
+        - daily
+        - weekly
+        - monthly
+        - quarterly
+        - annual
+        default: monthly
+  schemas:
+    GenericPayload:
+      type: object
+      description: 'Vendor payloads are loosely typed: top-level keys vary by function and several contain
+        spaces and numeric prefixes, for example `Time Series (Daily)` and `1. open`. The response is
+        passed through unmodified rather than reshaped, so clients stay compatible with the vendor documentation
+        and with existing Alpha Vantage client libraries.'
+      additionalProperties: true
+    ApiError:
+      type: object
+      description: Normalised error surfaced by the gateway.
+      properties:
+        statusCode:
+          type: integer
+          example: 429
+        message:
+          type: string
+          example: Upstream rate limit reached. Retry after the current window closes.
+        upstream:
+          type: string
+          description: Verbatim explanatory text from the vendor, when present.
+    GlobalQuote:
+      type: object
+      description: Illustrative shape of the GLOBAL_QUOTE payload; keys are vendor-defined.
+      properties:
+        Global Quote:
+          type: object
+          properties:
+            01. symbol:
+              type: string
+              example: IBM
+            05. price:
+              type: string
+              example: '285.42'
+            06. volume:
+              type: string
+              example: '3841029'
+            07. latest trading day:
+              type: string
+              format: date
+            10. change percent:
+              type: string
+              example: 1.2043%
