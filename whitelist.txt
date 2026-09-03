@@ -1,0 +1,27 @@
+
+
+
+Hi Nidhi,
+
+Yes, confirming these URLs are being accessed from servers, not from a laptop. Two sources:
+
+1) OpenShift (preprod)
+- Namespace: 0328axio-01-preprod-axa-xl
+- Pod: gdi-glr-backend-deployment-5c6757486b-6fsmd
+- Pod IP: 10.94.33.32 (internal only)
+- Node / Host IP: 100.88.44.33 (node: xlc-prd5-ocp-compute-default-static-blue-1-ch6bn)
+
+Outbound traffic is SNAT'd, so the proxy sees the node/egress IP rather than the pod IP. Since pods can be rescheduled to any node, could the whitelist be applied to the egress range for this namespace / the compute node pool rather than a single IP?
+
+2) Databricks
+- Cluster: z-xlc-0328-axio-pp-ue... (workspace z-xlc-0158-azur-)
+- Egress is via the workspace VNet NAT gateway. I'm confirming that public IP with the cloud platform team and will share it.
+
+URLs to whitelist:
+- https://www.sec.gov/
+- https://data.sec.gov
+
+The block is happening at the proxy (403 OpCoCHURLBlockedGlobal), so the rule would need to be on the proxy policy for these sources. Let me know if you need anything else.
+
+Thanks,
+Jiehuan
