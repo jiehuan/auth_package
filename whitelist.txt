@@ -25,3 +25,17 @@ The block is happening at the proxy (403 OpCoCHURLBlockedGlobal), so the rule wo
 
 Thanks,
 Jiehuan
+
+
+
+import requests
+
+url = "https://data.sec.gov/submissions/CIK0000320193.json"
+
+headers = {
+    "User-Agent": "jh.email@example.com"
+}
+
+response = requests.get(url, headers=headers)
+
+print(response.status_code)
