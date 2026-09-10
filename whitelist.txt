@@ -1,3 +1,64 @@
+A 到 L 列看清楚了。这一行是 **Existing**（改现有的 `svc-0328-axio-pp-spn-06`），不是新建。这样最省事的做法是**不再拆两个 registration**，直接在这个现有的 app reg 上同时加 SPA Redirect URI 和 `user_impersonation` scope。fastapi-azure-auth 支持这种做法：`app_client_id` 和 `openapi_client_id` 填同一个 client ID 就行。你 Notes 里原来那句话也正是这个思路，所以我上次说的"填两行"可以不用了。
+
+整行建议这样填：
+
+| 列 | 填写 |
+|---|---|
+| A | Existing |
+| B Purpose | Host Submission Triage. FastAPI backend validates Entra ID (v2) bearer tokens; React frontend and Swagger UI sign in via Auth Code + PKCE (SPA) |
+| C On-prem | No |
+| D Access Azure resources | N/A |
+| E Environment | PPD |
+| F App Reg Name | svc-0328-axio-pp-spn-06（现有的，不改名） |
+| G Scope | AXAXL（即 This org only，对应 Single tenant） |
+| H Secret expiry | N/A，SPA + PKCE 不需要 secret。如果这个 SPN 已经有别的用途在用 secret，就保持原样 |
+| I Certificates | 留空 |
+| J Owners | Daisuke Nakanishi, Andrew Wolfson |
+| K appRequester | Daisuke Nakanishi |
+| L Redirect URI | 平台选 **Single-Page Application (SPA)**，填三条：① 现有的前端 URL（React 用 MSAL 登录的话）② `https://<后端 route>/oauth2-redirect`（Swagger 用）③ `http://localhost:8000/oauth2-redirect`（本地开发，可选） |
+| M Logout URL | 留空，或填前端首页 URL |
+| N Expose API | Yes。App ID URI 用 `api://<client-id>`；scope 为 `user_impersonation`，Admins and users 可 consent |
+| O Graph | User.Read |
+| P–R App Roles | 留空 |
+| S Additional API permissions | 本 app 自己的 `user_impersonation`（Delegated，请 grant admin consent） |
+| T Endpoint version | v2 |
+| U User Assignment Required | No |
+| V Visible to Users | Yes（有 React 前端给用户用） |
+| W–AC | No，其余留空 |
+| AD Cloud Permit | A02935 |
+| AE HLD | 保持现有的 SDA / TDA 链接 |
+
+Notes（AF）可以改成更具体的版本：
+
+> Please update the existing app reg svc-0328-axio-pp-spn-06: (1) add the Redirect URIs listed in column L under the Single-Page Application (SPA) platform; (2) under Expose an API, set Application ID URI to api://<client-id> and add a delegated scope "user_impersonation" (Admins and users); (3) add this scope under API permissions and grant admin consent; (4) set requestedAccessTokenVersion = 2 in the manifest. No client secret needed (Auth Code + PKCE). Please send back the Tenant ID and Client ID.
+
+有两点要注意。第一，L 列里原来那个 `professional-app-routes-...` 如果是前端的 route，Swagger 的回调要用**后端**的 route 加 `/oauth2-redirect`，两条不一样，别只填一条。第二，如果这个 URI 现在是注册在 Web 平台下，要让他们改成或加到 SPA 平台下，否则 PKCE 登录会报 AADSTS9002326 错误。
+
+批下来以后，FastAPI 这边 `APP_CLIENT_ID` 和 `OPENAPI_CLIENT_ID` 都填这个 client ID，scope 用 `api://<client-id>/user_impersonation`。
+
+
+
+那就更简单了。`/oauth2-redirect` 只是给 Swagger UI 的 Authorize 按钮登录用的；如果登录完全由 React 前端（MSAL）负责，后端只验证 token，就确实不需要它。需要改的格子只有下面几个，其余照上一版填：
+
+| 列 | 改为 |
+|---|---|
+| A | **New**（照片里现在写的是 Existing，要改掉） |
+| B Purpose | Submission Triage: React SPA signs users in via Entra ID (Auth Code + PKCE) and calls the FastAPI backend, which validates v2 access tokens |
+| H Secret expiry | N/A，纯 SPA + PKCE，后端只验 token，不需要 secret |
+| L Redirect URI | 平台选 **SPA**，只填前端 URL：`https://professional-app-routes-0328axio-01-preprod-...`（你们的前端 route）。本地开发的地址也可以一起加，比如 `http://localhost:3000` 或 `http://localhost:5173`，具体问前端用哪个端口 |
+
+AF 的 Notes 更新为：
+
+> New app reg. Please: (1) register the URI(s) in column L under the Single-Page Application (SPA) platform; (2) under Expose an API, set Application ID URI to api://<client-id> and add a delegated scope "user_impersonation" (Admins and users); (3) add this scope under API permissions and grant admin consent; (4) set requestedAccessTokenVersion = 2 in the manifest. No client secret required (Auth Code + PKCE). Please send back the Tenant ID and Client ID.
+
+有两点要提醒一下。
+
+第一，F 列表头写的命名规则是 `[SubscriptionName]-sacct-[appname|function]-[environment]`，而 `svc-0328-axio-pp-spn-06` 看起来不符合这个格式。如果这个名字是平台团队分配给你的，就没问题；如果是你们自己起的，提交前最好确认一下，不然可能被打回。
+
+第二，不注册 `/oauth2-redirect` 的代价是：部署后的 Swagger 页面上 Authorize 按钮没法登录。后端调试时，可以从前端拿到 token 手动带上 `Authorization: Bearer ...`，或者用 Postman。FastAPI 这边 `APP_CLIENT_ID` 填这个 client ID；`OPENAPI_CLIENT_ID` 可以不配，或者也填同一个 ID。前端 MSAL 请求的 scope 是 `api://<client-id>/user_impersonation`。
+
+
+
 
 
 
