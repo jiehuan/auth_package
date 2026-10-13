@@ -1,0 +1,111 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  timeZone: {{ .Values.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.maxRunSeconds }}
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: {{ .Values.name }}
+              image: {{ .Values.image }}
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - configMapRef:
+                    name: {{ .Values.name }}-config
+                - secretRef:
+                    name: {{ .Values.name }}-secret
+              resources:
+                requests: { cpu: 250m, memory: 512Mi }
+                limits:   { cpu: "1",  memory: 2Gi }
+
+
+
+name: professional-cronjob
+namespace: <你的 dev namespace>
+image: <+artifacts.primary.image>
+schedule: "0 6 * * *"        # 每天早上 6 点
+timeZone: "America/New_York"
+maxRunSeconds: 3600
+
+# deploy/templates/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-config
+  annotations:
+    harness.io/skip-versioning: "true"
+data:
+  LOG_LEVEL: "INFO"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.name }}-secret
+  annotations:
+    harness.io/skip-versioning: "true"
+type: Opaque
+stringData:
+  DATABRICKS_TOKEN: <+secrets.getValue("databricks_token")>
+
+
+- step:
+    type: K8sApply
+    name: apply_cronjob
+    identifier: apply_cronjob
+    spec:
+      filePaths:
+        - templates/config.yaml
+        - templates/cronjob.yaml
+      skipDryRun: false
+      skipSteadyStateCheck: true
+    timeout: 10m
+
+
+name: professional-cronjob
+image: <+artifact.image>
+namespace: <+infra.namespace>
+schedule: "0 6 * * *"
+timeZone: "America/New_York"
+maxRunSeconds: 3600
+
+env:
+  ENV: ppd
+  config:
+    LOG_LEVEL: INFO
+    AZURE_SQL_HOST: z-xlc-0328-axio-pp-ue2-sql01-axiomaisubmissionprioriti.database.windows.net
+    AZURE_SQL_DATABASE: z-xlc-0328-axio-pp-ue2-sdb03-axiomaisubmissionprioriti
+  secrets:
+    SQL_CLIENT_ID: <+secrets.getValue("xlc-azu-eus2-prd-apps-sacct-0328-di-ppd-client-id")>
+    SQL_CLIENT_SECRET: <+secrets.getValue("xlc-azu-eus2-prd-apps-sacct-0328-di-ppd-client-secret")>
+
+
+FROM artifactory.platform.axaxl-cloud.com/docker/python:3.12-slim-bookworm
+
+COPY debian.sources /etc/apt/sources.list.d/debian.sources
+COPY microsoft-prod.sources /etc/apt/sources.list.d/microsoft-prod.sources
+COPY microsoft.asc /usr/share/keyrings/microsoft.asc
+
+RUN apt-get update \
+ && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/pydeps:/app HOME=/tmp
+WORKDIR /app
+COPY . /app
+CMD ["python", "-m", "cronjob.main"]
+
+
+
