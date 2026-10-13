@@ -1,0 +1,125 @@
+nginx.conf
+
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://professional-app-bff:8000/;
+
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+
+
+server/Dockerfile:
+
+FROM <你们AXA批准的python-base-image>
+
+WORKDIR /app
+
+COPY server/requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY server/app ./app
+COPY server/alembic ./alembic
+COPY server/alembic.ini ./alembic.ini
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips=*"]
+
+
+
+BFF deployment：
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: professional-app-bff
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: professional-app-bff
+
+  template:
+    metadata:
+      labels:
+        app: professional-app-bff
+
+    spec:
+      containers:
+        - name: professional-app-bff
+          image: {{ .Values.image }}
+
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: professional-app-bff
+
+spec:
+  selector:
+    app: professional-app-bff
+
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+
+
+BFF 的 values
+
+name: professional-app-bff
+image: <+artifact.image>
+namespace: <+infra.namespace>
+
+route:
+  enabled: false
