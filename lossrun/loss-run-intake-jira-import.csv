@@ -1,0 +1,470 @@
+"Issue Id","Parent Id","Issue Type","Summary","Description","Epic Name","Epic Link","Priority","Story Points","Sprint","Labels","Labels","Labels"
+"1","","Epic","Platform & DevOps","Repositories, Harness CI/CD, OpenShift preprod deployment, connectivity to Azure and the internal LLM, logging and alerting for Loss Run Intake.","Platform & DevOps","","Medium","","","loss-run-intake","platform",""
+"2","","Epic","Authentication & Access","Microsoft Entra ID sign-in, token validation, user provisioning, roles and per-agent permissions.","Authentication & Access","","Medium","","","loss-run-intake","auth",""
+"3","","Epic","Data & Storage","Azure SQL data model and migrations, ADLS Gen2 file storage, UAT data preparation.","Data & Storage","","Medium","","","loss-run-intake","data",""
+"4","","Epic","Backend API & Worker","FastAPI endpoints, background extraction worker, reconciliation engine and golden-source Excel export.","Backend API & Worker","","Medium","","","loss-run-intake","backend",""
+"5","","Epic","LLM Extraction","Port the existing LLM extraction code behind the LLMIntake interface (recommend_page, infer_fields, extract_claims), internal LLM client, large-document handling and accuracy evaluation.","LLM Extraction","","Medium","","","loss-run-intake","llm",""
+"6","","Epic","Frontend (Figma)","React frontend built from the Figma designs: app shell, dashboard, upload, job detail, agent builder wizard, team management.","Frontend (Figma)","","Medium","","","loss-run-intake","frontend",""
+"7","","Epic","Security & Compliance","Dependency and image scanning, audit logging and data retention for real loss run data used in UAT.","Security & Compliance","","Medium","","","loss-run-intake","security",""
+"8","","Epic","UAT & Release","UAT planning, user provisioning, UI acceptance, documentation, UAT execution and go/no-go recommendation.","UAT & Release","","Medium","","","loss-run-intake","uat",""
+"101","1","Story","[1.1] Set up backend and frontend repositories","h3. Context
+Two repositories, one image each: loss-run-intake-backend (Python FastAPI API and worker, same image) and loss-run-intake-frontend (React SPA plus a small Node server that serves it and proxies /api).
+
+h3. Scope
+* Create both repositories in GHE with main as default branch
+* Branch protection on main: PR required, at least 1 review, CI must pass
+* PR template, CODEOWNERS and README with local development setup
+* .env.example in each repository; no secrets committed
+
+h3. Acceptance Criteria
+* Both repositories exist with protected main
+* A new developer can run backend and frontend locally by following the README","","Platform & DevOps","High","2","LRI Sprint 1","loss-run-intake","platform","sprint-1"
+"102","1","Story","[1.2] Verify connectivity from preprod to Azure SQL, ADLS, Entra ID and internal LLM","h3. Context
+Azure SQL, the ADLS Gen2 container and the service principal already exist. Network egress from the OpenShift preprod namespace (0328axio-01-preprod-axa-xl) has not been verified.
+
+h3. Scope
+* Store service principal credentials, SQL connection details and LLM API key in an OpenShift Secret (never in the repository)
+* From a debug pod in the preprod namespace, test Azure SQL (port 1433), the ADLS endpoint (443), login.microsoftonline.com (443) and the internal LLM endpoint
+* Raise firewall / egress requests for anything that is blocked
+
+h3. Acceptance Criteria
+* Every endpoint is reachable from a pod in preprod; results recorded in this ticket
+* Service principal can connect to Azure SQL and read/write a test file in the ADLS container
+
+h3. Notes
+* Start on day 1: egress requests can take time and block 1.8, 1.9 and 1.12","","Platform & DevOps","Highest","3","LRI Sprint 1","loss-run-intake","platform","sprint-1"
+"103","1","Story","[1.3] Harness CI build pipelines for backend and frontend images","h3. Context
+Harness project xlcapp0328axio; images are pushed to Artifactory with the xlc-panda-buildah plugin.
+
+h3. Scope
+* Backend: Run step installs Python dependencies into pydeps, runs pytest, then buildah builds and pushes
+* Frontend: Run step runs npm ci and npm run build, then buildah builds and pushes
+* Image tag <+pipeline.sequenceId>
+
+h3. Acceptance Criteria
+* A merge to main produces both images in Artifactory
+* Failing unit tests or build errors fail the pipeline
+
+h3. Notes
+* Dockerfiles must not contain RUN instructions: the buildah plugin runs unprivileged without network, so all installs/builds happen in Run steps
+* The Run step image must match the Dockerfile base image (compiled wheels)
+* Check that the repo field is the real Artifactory path, not a placeholder","","Platform & DevOps","High","5","LRI Sprint 1","loss-run-intake","platform","sprint-1"
+"104","1","Story","[1.4] Harness CD deployment to OpenShift preprod","h3. Context
+Deploy api, worker and frontend to preprod. With files in ADLS and data in Azure SQL, no PVC is needed and api/worker run as separate Deployments.
+
+h3. Scope
+* Manifests: Deployments for api, worker and frontend; Services; Route (router: internal) to the frontend; ConfigMap; Secret reference
+* api probes: startupProbe and livenessProbe on /healthz, readinessProbe on /readyz, explicit timeoutSeconds
+* worker probes: startupProbe and livenessProbe checking the heartbeat file age, explicit timeoutSeconds
+* Resource requests and limits for every container
+* Harness deploy stage with values file image: <+artifacts.primary.image>
+
+h3. Acceptance Criteria
+* All pods Running and Ready with zero restarts over 1 hour
+* Route URL loads the frontend and /api calls are proxied to the backend
+* Total CPU/memory limits fit the namespace quota; a quota increase request is raised if they do not (only about 0.7 CPU was free at last check)
+
+h3. Notes
+* Route to.name must match the actual Service name
+* Every manifest file (ConfigMap, Service, Route) must be listed in the Harness manifest paths","","Platform & DevOps","High","5","LRI Sprint 1","loss-run-intake","platform","sprint-1"
+"105","2","Story","[1.5] Entra ID app registration","h3. Context
+Single app registration used by the SPA to sign in and by the backend to validate tokens.
+
+h3. Scope
+* SPA platform with redirect URI = preprod Route URL (plus http://localhost:5173 for local development)
+* Expose an API with scope api://<client-id>/access_as_user
+* App role LossRun.Admin
+
+h3. Acceptance Criteria
+* Tenant ID and client ID documented and stored in the ConfigMap
+* A test user can obtain a token containing the access_as_user scope
+
+h3. Notes
+* May require a request to the identity team","","Authentication & Access","High","2","LRI Sprint 1","loss-run-intake","auth","sprint-1"
+"106","2","Story","[1.6] Backend Entra token validation and user provisioning","h3. Context
+The backend accepts only valid Entra access tokens and maps them to application users.
+
+h3. Scope
+* Validate signature (cached JWKS), issuer, audience, expiry, tenant and access_as_user scope
+* Match users by Entra oid; create the user on first login; link pre-invited members by email
+* Read app roles from the token
+* Public /api/config endpoint returns auth mode and SPA client settings
+* AUTH_MODE=dev for local development
+
+h3. Acceptance Criteria
+* Missing, invalid or expired token returns 401
+* A valid token creates or links the user record
+* Unit tests use locally signed tokens (no calls to Entra in CI)","","Authentication & Access","High","5","LRI Sprint 1","loss-run-intake","auth","sprint-1"
+"107","2","Story","[1.7] Frontend MSAL sign-in and sign-out","h3. Context
+The SPA signs users in with their corporate account using MSAL redirect flow.
+
+h3. Scope
+* Load /api/config before rendering, then initialise MSAL
+* Attach bearer token to every API call; silent token renewal; sign-out
+* If /api/config fails, show an error page with Retry instead of a blank page
+
+h3. Acceptance Criteria
+* User signs in with a corporate account, sees their name in the header and can sign out
+* Token expiry is handled without a manual page reload","","Authentication & Access","High","3","LRI Sprint 1","loss-run-intake","auth","sprint-1"
+"108","3","Story","[1.8] Data model and Azure SQL schema migrations with Alembic","h3. Context
+Persistent model for users, teams, agents (extraction schemas), jobs, documents, extracted claims and issues.
+
+h3. Scope
+* SQLAlchemy models and Alembic migrations; mssql-python driver with Encrypt=yes
+* SQL Server-safe types: String(36) UUIDs, NVARCHAR(max) for JSON, no multiple cascade paths
+* Migrations run as an explicit step (Harness step or Kubernetes Job) before rollout, not on app startup
+
+h3. Acceptance Criteria
+* alembic upgrade head runs cleanly against preprod Azure SQL
+* Downgrade of the latest migration is tested","","Data & Storage","High","5","LRI Sprint 1","loss-run-intake","data","sprint-1"
+"109","3","Story","[1.9] ADLS Gen2 storage adapter for uploads and exports","h3. Context
+Uploaded loss run files and generated exports are stored in the existing ADLS Gen2 container.
+
+h3. Scope
+* Storage interface with ADLS implementation (service principal) and local filesystem implementation for development
+* Path convention per environment / team / job for originals and exports
+* Stream uploads and downloads instead of buffering whole files in memory
+
+h3. Acceptance Criteria
+* Uploads and exports land in ADLS; no PVC is used
+* Integration test passes against the preprod container","","Data & Storage","High","3","LRI Sprint 1","loss-run-intake","data","sprint-1"
+"110","4","Story","[1.10] Upload and job APIs","h3. Context
+Endpoints the frontend uses to submit files and track extraction jobs.
+
+h3. Scope
+* Upload endpoint for PDF, XLSX, XLS and CSV with configurable size limit
+* Create job (file + agent), list jobs (paged, filtered), job detail
+* Job statuses: queued, running, succeeded, failed
+
+h3. Acceptance Criteria
+* Unsupported type or oversize file returns 4xx with a clear message
+* Users only see jobs they are allowed to access
+* OpenAPI documentation available","","Backend API & Worker","High","5","LRI Sprint 1","loss-run-intake","backend","sprint-1"
+"111","4","Story","[1.11] Background worker for extraction jobs","h3. Context
+A separate Deployment using the backend image with command python -m lossrun.worker.
+
+h3. Scope
+* Poll queued jobs and claim them atomically
+* Status transitions, error capture, requeue of stale jobs
+* Write a heartbeat file for the liveness probe
+* Handle SIGTERM gracefully: finish the current file within the termination grace period
+
+h3. Acceptance Criteria
+* Two worker replicas never process the same job (tested)
+* A job held by a killed worker is requeued after the timeout
+* Failed jobs store an error message shown in the UI","","Backend API & Worker","High","5","LRI Sprint 1","loss-run-intake","backend","sprint-1"
+"112","5","Story","[1.12] Port existing LLM extraction code: extract_claims","h3. Context
+LLM extraction logic already exists outside this repository. Move it behind the LLMIntake interface (recommend_page, infer_fields, extract_claims).
+
+h3. Scope
+* Review the existing code's inputs and outputs and map them to the interface
+* Implement extract_claims: document pages + agent field schema -> claim rows
+* Validate and normalise output to field types (dates, amounts, currency)
+* Unit tests with recorded LLM responses (no live LLM calls in CI)
+* Prompts versioned in the repository
+
+h3. Acceptance Criteria
+* Worker extracts claims end to end from a sample PDF and a sample Excel loss run in preprod
+* Malformed LLM output fails the job with a readable error instead of crashing the worker","","LLM Extraction","High","8","LRI Sprint 1","loss-run-intake","llm","sprint-1"
+"113","5","Story","[1.13] Internal LLM client configuration","h3. Context
+Client used by all LLMIntake methods to call the internal LLM service.
+
+h3. Scope
+* Endpoint, model and API key from environment / Secret
+* Timeout and retry with backoff for 429 and 5xx; classify retryable vs non-retryable errors
+* Log latency and token usage without logging document content
+* LLM_PROVIDER switch to select provider
+
+h3. Acceptance Criteria
+* Configuration is environment-only; nothing hard-coded
+* Retry behaviour verified with a mocked endpoint","","LLM Extraction","High","3","LRI Sprint 1","loss-run-intake","llm","sprint-1"
+"114","6","Story","[1.14] Frontend scaffold from Figma","h3. Context
+Base frontend project matching the Figma design system.
+
+h3. Scope
+* Vite + React + TypeScript + TanStack Router/Query + Tailwind
+* Design tokens (colours, typography, spacing) taken from Figma
+* App shell: header, navigation, page layout
+* Base components: button, input, table, badge, dialog, toast
+* Node server serves the built SPA and proxies /api to the backend Service (streaming, long timeout for uploads)
+
+h3. Acceptance Criteria
+* Shell matches the Figma layout
+* Lint and type check run in CI
+* Image runs in preprod behind the Route","","Frontend (Figma)","High","5","LRI Sprint 1","loss-run-intake","frontend","sprint-1"
+"115","6","Story","[1.15] Dashboard and upload page","h3. Context
+Users see their jobs and submit new loss run files.
+
+h3. Scope
+* Dashboard: job list with status badges, auto-refresh while jobs are running
+* Upload page: drag and drop, file type and size validation, agent selection, upload progress
+
+h3. Acceptance Criteria
+* Pages match Figma
+* A successful upload creates a job and navigates to its detail page","","Frontend (Figma)","High","5","LRI Sprint 1","loss-run-intake","frontend","sprint-1"
+"116","6","Story","[1.16] Job detail page with extracted claims and Excel download","h3. Context
+Users review the extraction result of a job.
+
+h3. Scope
+* Job status and metadata
+* Extracted claims table with sorting and horizontal scroll
+* Download Excel button
+* Polling while the job is running
+
+h3. Acceptance Criteria
+* Page matches Figma
+* Download returns the golden-source Excel for the job","","Frontend (Figma)","High","5","LRI Sprint 1","loss-run-intake","frontend","sprint-1"
+"117","4","Story","[1.17] Golden-source Excel export","h3. Context
+Standard Excel output that downstream teams consume.
+
+h3. Scope
+* Generate XLSX in the golden-source layout from a job's claims
+* Store the file in ADLS; download endpoint with access check
+
+h3. Acceptance Criteria
+* Column order and formats follow the agreed template (confirm with business)
+* Dates and amounts are typed cells; file opens in Excel without warnings","","Backend API & Worker","High","3","LRI Sprint 1","loss-run-intake","backend","sprint-1"
+"118","4","Story","[2.1] Agent (extraction schema) CRUD API","h3. Context
+An agent defines which fields to extract (name, type, description, required) for a carrier or format.
+
+h3. Scope
+* Create, read, update, delete and clone agents
+* Golden agent: organisation default, editable by Admin only
+* Editing an agent does not change results of completed jobs
+
+h3. Acceptance Criteria
+* All endpoints enforce permissions
+* Deleting an agent that is in use is blocked or soft-deleted","","Backend API & Worker","Medium","5","LRI Sprint 2","loss-run-intake","backend","sprint-2"
+"119","5","Story","[2.2] Port recommend_page and infer_fields","h3. Context
+LLM methods used by the agent builder wizard, moved from the existing code behind LLMIntake.
+
+h3. Scope
+* recommend_page: from a sample document, return the page(s) most likely to contain the claims table, with confidence
+* infer_fields: propose a field list with types from the selected page
+* Reuse the LLM client from 1.13
+
+h3. Acceptance Criteria
+* Both methods return usable results on the evaluation samples
+* Low-confidence results are flagged instead of silently guessed","","LLM Extraction","Medium","5","LRI Sprint 2","loss-run-intake","llm","sprint-2"
+"120","6","Story","[2.3] Agent builder wizard UI","h3. Context
+Three-step wizard for building a new agent from a sample loss run.
+
+h3. Scope
+* Step 1: upload a sample file
+* Step 2: preview pages, highlight the recommended page, user selects
+* Step 3: review inferred fields (rename, change type, mark required, add, remove) and save
+
+h3. Acceptance Criteria
+* Wizard matches Figma
+* A user can complete the wizard end to end and use the new agent on a job
+* Going back to a previous step keeps entered data","","Frontend (Figma)","Medium","8","LRI Sprint 2","loss-run-intake","frontend","sprint-2"
+"121","4","Story","[2.4] Reconciliation rules engine and issues API","h3. Context
+Automatic data quality checks on extracted claims.
+
+h3. Scope
+* Rules: missing required fields, invalid dates, paid + reserve vs incurred mismatch, negative amounts, duplicate claim numbers, totals vs document totals where available
+* Issues stored with severity, row and field
+* Endpoints to list, resolve and ignore issues
+
+h3. Acceptance Criteria
+* Every rule has unit tests
+* Resolved values are reflected in the Excel export","","Backend API & Worker","Medium","5","LRI Sprint 2","loss-run-intake","backend","sprint-2"
+"122","6","Story","[2.5] Job detail enhancements: preview, issues, inline edit, re-run","h3. Context
+Users verify and correct extraction results against the source document.
+
+h3. Scope
+* Document preview: PDF page render; spreadsheet preview served by the backend
+* Issues panel; clicking an issue highlights the row/cell
+* Inline edit of cell values (audited)
+* Re-run the job with the same or a different agent
+
+h3. Acceptance Criteria
+* Page matches Figma
+* Edits are reflected in the export
+* Re-run creates a new job and keeps history","","Frontend (Figma)","Medium","8","LRI Sprint 2","loss-run-intake","frontend","sprint-2"
+"123","4","Story","[2.6] Excel/CSV header-mapping fast path","h3. Context
+Clean spreadsheet loss runs can be mapped by column headers without calling the LLM, saving cost and time.
+
+h3. Scope
+* Header row detection
+* Synonym-based mapping of columns to agent fields
+* Fall back to the LLM when mapping confidence is low
+
+h3. Acceptance Criteria
+* Clean Excel/CSV samples are extracted without LLM calls
+* Mapping decisions are logged","","Backend API & Worker","Medium","3","LRI Sprint 2","loss-run-intake","backend","sprint-2"
+"124","5","Story","[2.7] Large document handling","h3. Context
+Loss runs can run to hundreds of pages.
+
+h3. Scope
+* Configurable limits on pages and file size
+* Chunk pages for extract_claims; merge results and de-duplicate across chunk boundaries
+* Token budget per job with a clear error when exceeded
+
+h3. Acceptance Criteria
+* A 100+ page PDF completes without timeout or OOM within worker limits
+* Limits are shown to users in the UI","","LLM Extraction","Medium","5","LRI Sprint 2","loss-run-intake","llm","sprint-2"
+"125","5","Story","[2.8] Extraction evaluation set and accuracy report","h3. Context
+Objective measure of extraction quality, used as a UAT entry criterion.
+
+h3. Scope
+* Collect sample loss runs from at least 10 carriers with hand-labelled expected output
+* Script computing field-level precision and recall
+* Run on demand (not in CI with live LLM)
+
+h3. Acceptance Criteria
+* Baseline accuracy report published
+* Report agreed with business as UAT entry criterion","","LLM Extraction","Medium","5","LRI Sprint 2","loss-run-intake","llm","sprint-2"
+"126","2","Story","[2.9] Role-based access and per-agent permissions","h3. Context
+Control who can manage the team and which agents each user can use.
+
+h3. Scope
+* Admin vs User from the Entra app role
+* Admin manages team members and per-agent access
+* Enforced in the backend, not only hidden in the UI
+
+h3. Acceptance Criteria
+* Authorization tests cover every endpoint
+* Users only see jobs and agents they are allowed to access","","Authentication & Access","Medium","5","LRI Sprint 2","loss-run-intake","auth","sprint-2"
+"127","6","Story","[2.10] Team management page","h3. Context
+Admin page for managing users and access.
+
+h3. Scope
+* Invite members by email
+* Set role
+* Grant or revoke agent access
+
+h3. Acceptance Criteria
+* Page matches Figma
+* Visible to Admins only","","Frontend (Figma)","Medium","3","LRI Sprint 2","loss-run-intake","frontend","sprint-2"
+"128","6","Story","[2.11] Empty, error and loading states per Figma","h3. Context
+Consistent handling of non-happy-path states across all pages.
+
+h3. Scope
+* Empty states for lists
+* Error states for failed requests and failed jobs, with retry where useful
+* Loading skeletons
+
+h3. Acceptance Criteria
+* Every page has empty, error and loading states matching Figma","","Frontend (Figma)","Medium","3","LRI Sprint 2","loss-run-intake","frontend","sprint-2"
+"129","1","Story","[2.12] Structured logging with correlation ID","h3. Context
+Troubleshooting a job across frontend proxy, api and worker.
+
+h3. Scope
+* JSON logs in api and worker
+* Request ID passed from the frontend proxy to the api, stored on the job and used in worker logs
+* No personal data or document content in logs
+
+h3. Acceptance Criteria
+* A job can be traced in OpenShift logs by its job ID","","Platform & DevOps","Medium","3","LRI Sprint 2","loss-run-intake","platform","sprint-2"
+"130","8","Story","[3.1] UAT plan and test cases","h3. Context
+Define how UAT is run in preprod and what counts as passing.
+
+h3. Scope
+* Test scenarios and test cases
+* Carriers and sample files covered
+* Acceptance criteria (including the accuracy baseline from 2.8)
+* Participating business users and schedule
+
+h3. Acceptance Criteria
+* Plan reviewed and approved by the business owner","","UAT & Release","High","3","LRI Sprint 3","loss-run-intake","uat","sprint-3"
+"131","2","Story","[3.2] Provision UAT users","h3. Context
+UAT participants need access to preprod.
+
+h3. Scope
+* Assign UAT users / group in Entra, including LossRun.Admin where needed
+* Pre-create team members in the application
+
+h3. Acceptance Criteria
+* Every UAT participant can sign in and sees the correct role","","Authentication & Access","High","2","LRI Sprint 3","loss-run-intake","auth","sprint-3"
+"132","3","Story","[3.3] UAT data preparation and golden agents","h3. Context
+UAT uses real loss runs, which contain claimant data.
+
+h3. Scope
+* Obtain data-policy approval for using real samples in preprod, or mask them
+* Pre-configure golden agents for the carriers in scope
+
+h3. Acceptance Criteria
+* Approved sample set available to UAT users
+* Golden agents produce expected results on the sample set","","Data & Storage","High","3","LRI Sprint 3","loss-run-intake","data","sprint-3"
+"133","7","Story","[3.4] Dependency and container image scanning","h3. Context
+Security baseline before real data is used in UAT.
+
+h3. Scope
+* Dependency scan for backend and frontend
+* Container image scan per AXA XL standard
+* Fix critical and high findings
+
+h3. Acceptance Criteria
+* No open critical or high findings, or documented exceptions approved","","Security & Compliance","High","3","LRI Sprint 3","loss-run-intake","security","sprint-3"
+"134","7","Story","[3.5] Audit logging and data retention","h3. Context
+Accountability and retention for real loss run data.
+
+h3. Scope
+* Audit log of upload, download, edit, delete and role changes (who and when)
+* Retention policy for files and extracted data in preprod (confirm period with data governance)
+* Automated clean-up job
+
+h3. Acceptance Criteria
+* Audit entries visible to Admins
+* Data older than the retention period is removed automatically","","Security & Compliance","High","5","LRI Sprint 3","loss-run-intake","security","sprint-3"
+"135","8","Story","[3.6] Performance smoke test","h3. Context
+Confirm preprod can handle UAT load within the namespace quota.
+
+h3. Scope
+* Concurrent jobs from several users
+* Large PDFs
+* Tune worker replicas and resources within quota
+
+h3. Acceptance Criteria
+* Results documented with expected processing times
+* No OOM kills or quota errors during the test","","UAT & Release","High","3","LRI Sprint 3","loss-run-intake","uat","sprint-3"
+"136","1","Story","[3.7] Basic alerting","h3. Context
+Know about problems during UAT before users report them.
+
+h3. Scope
+* Alerts on job failure rate, LLM errors and pod restarts using the platform's monitoring stack
+
+h3. Acceptance Criteria
+* Alerts reach the team channel or email
+* Each alert tested once","","Platform & DevOps","Medium","3","LRI Sprint 3","loss-run-intake","platform","sprint-3"
+"137","8","Story","[3.8] UI acceptance against Figma and browser compatibility","h3. Context
+Final visual and functional check before UAT users start.
+
+h3. Scope
+* Page-by-page comparison with Figma
+* Check supported browsers (Edge, Chrome)
+* Basic accessibility checks (keyboard navigation, contrast)
+
+h3. Acceptance Criteria
+* All deviations fixed or accepted by design","","UAT & Release","High","3","LRI Sprint 3","loss-run-intake","uat","sprint-3"
+"138","8","Story","[3.9] User guide and UAT feedback channel","h3. Context
+UAT users need instructions and a way to report issues.
+
+h3. Scope
+* Short user guide (upload, review, fix issues, export, build an agent)
+* Feedback channel: Jira issue type or form for UAT defects
+
+h3. Acceptance Criteria
+* Guide shared with UAT users
+* Defects reported during UAT land in Jira","","UAT & Release","Medium","2","LRI Sprint 3","loss-run-intake","uat","sprint-3"
+"139","8","Story","[3.10] UAT execution and bug fix buffer","h3. Context
+Run UAT with business users and fix defects found.
+
+h3. Scope
+* Support UAT sessions
+* Triage and fix defects
+* Redeploy fixes to preprod
+
+h3. Acceptance Criteria
+* All planned test cases executed
+* No open critical or high defects at the end of UAT","","UAT & Release","High","8","LRI Sprint 3","loss-run-intake","uat","sprint-3"
+"140","8","Story","[3.11] UAT sign-off summary and go/no-go recommendation","h3. Context
+Close UAT with a clear decision on moving to production.
+
+h3. Scope
+* Summary of test results, accuracy, open defects and risks
+* Go/no-go recommendation for production
+
+h3. Acceptance Criteria
+* Summary reviewed with business owner and decision recorded","","UAT & Release","High","2","LRI Sprint 3","loss-run-intake","uat","sprint-3"
