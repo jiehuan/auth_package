@@ -1,0 +1,54 @@
+Thanks for the request. Metrics can't be added from the app itself; we add them in the data pipeline's configuration, and they appear after the next nightly refresh once the change is released. To add one, please send us:
+
+The company (ticker).
+The metric: its name and how you'd calculate it, for example "Fulfillment expense / Revenue" or "Days inventory outstanding = inventory / cost of revenue × 365".
+Where the number comes from, if you know. For example, a line in the income statement or balance sheet, or a figure the company only gives in its 10-K/10-Q text or earnings release, such as RevPAR or backlog.
+Scope: is it only for this company, or for every company in the same industry? Peer comparison only works when the metric is added for the whole industry.
+Periods: quarterly, annual, or both.
+What happens next:
+
+Already calculated but not shown (some metrics are computed in the background): we can turn it on quickly.
+Can be calculated from reported financials: we add a formula. There's no extra cost, and history goes back about 5 years and 8 quarters.
+Only appears in the filing text: we read it from the filings with the AI extraction step. Every value is checked against the quoted source text, so a value appears only when the filing states it clearly.
+Company-specific line items (as we did for Amazon's Technology & Infrastructure and Fulfillment costs) go into a company-specific setup and show up as extra cards on that company's page only.
+We'll confirm which case applies and when it will appear.
+
+
+Notes for you
+
+It's a config change; no code is needed.
+An existing metric for one company: config/company_overrides/<TICKER>.yaml (metrics:, exclude_metrics:), like AMZN under D-090.
+For a whole industry: config/industry_groups.yaml.
+A brand-new metric: config/metrics.yaml.
+Step-by-step is in docs/CONFIGURATION.md §2–2.3.
+Check what the company already tracks first: uw-pipeline config show --ticker XXX. A metric in a hidden set, such as inventory_days under REPORTING_QUALITY, is computed but not shown. That's why Amazon needed its own amzn_inventory_days.
+Cost: formula metrics cost nothing extra. Text metrics (kind: text) cost LLM calls, and their values may be missing or dropped by the evidence check, like the RVMD warning in run 185.
+Release path: phase17 → release-takeaways → nightly → release_prod.py. The engineers then rebuild the OpenShift image, so tell the UAT user it isn't same-day.
+If you send me the company and the metrics they want, I'll check whether the data exists and draft the config change.
+
+
+Yes. Insider trading is tracked for every company from its SEC Form 4 filings, which officers and directors must file within two business days of a trade. Today we collect about 113,000 trades across 276 companies.
+
+What you see in the app today
+
+Insider cluster selling appears as a risk item under Governance & Leadership → Insider Trading. It is raised when 3 or more officers or directors sell on the open market within 30 days.
+It counts open-market sales only. Pre-scheduled sales under a Rule 10b5-1 trading plan are left out (about two-thirds of all sales), and so are option exercises, tax withholding, awards and gifts. This keeps it to discretionary selling.
+Around events: the item is raised to Warning when a sharp stock drop, or a drop after an earnings miss, follows within 90 days. In other words, insiders sold before bad news. So far there are about 775 such items across 153 companies, and 115 of them are Warnings.
+These items also feed the AI-generated Key Insights and Strategic Risk sections.
+What we can add if useful
+
+Quarterly insider metrics as cards: Insider Net Open-Market Sales (USD) and Holdings Sold by Officers (%). They are already calculated but currently hidden, along with the other market metrics, to keep the first release to the core financial scope. We can show them again.
+Tighter or looser thresholds, for example 2 insiders instead of 3, or a different window, either for everyone or for a particular industry.
+Sales ahead of specific events, for example insiders selling within N days before an earnings release, a restatement, a cybersecurity incident, an executive departure, or an M&A announcement. This would be a new type of alert.
+Large single-insider sales, for example the CEO or CFO selling more than X% of their holdings in a quarter.
+A trade-by-trade list (who, when, how many shares, price, plan or not) on the company page.
+Let us know which of these matter most and which events you care about.
+
+Notes for you (effort per option)
+
+#	Change	Effort
+1	Unhide metrics	Remove MARKET from hidden_metric_sets in config/metrics.yaml:32. It's one line and needs no backfill, but it reverses a D-054 business decision and also brings back market cap, volatility, drawdown and EPS surprise.
+2	Thresholds	Config only: min_insiders, window_days, escalate_days in signal_rules.yaml, or per industry via signal_params.
+3	Sales before events	Needs code: a new signal rule joining insider_transaction with 8-K items and filing dates. The data is already there. Would be a new decision (D-094), a moderate change.
+4	Large single sale	A threshold signal on officer_sell_pct is config only, but D-054 suppresses threshold signals on hidden metrics, so it needs #1 first.
+5	Trade list in the app	Biggest change: a new app table, plus BFF and front-end work in their repos. A contract note in schema-contract.md would come first.
