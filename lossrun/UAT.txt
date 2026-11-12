@@ -1,3 +1,6 @@
+UserFavority,UserPinnedCompanies,UserHistory,UserFlaggedFollowupQuestions,UserMetricsSelection,UserNotificationRead
+
+
 Thanks for the request. Metrics can't be added from the app itself; we add them in the data pipeline's configuration, and they appear after the next nightly refresh once the change is released. To add one, please send us:
 
 The company (ticker).
