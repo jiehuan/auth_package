@@ -1,5 +1,23 @@
 UserFavority,UserPinnedCompanies,UserHistory,UserFlaggedFollowupQuestions,UserMetricsSelection,UserNotificationRead
 
+Banks such as Capital One don't show EBITDA (or EBIT) on purpose. It's a design choice, not missing data.
+
+Why EBITDA doesn't fit banks
+
+Interest is a bank's main cost, not a financing cost. A bank earns money on the spread between the interest it charges on loans and the interest it pays on deposits and borrowings. EBITDA adds interest expense back, which removes the bank's largest cost of doing business, so the result doesn't mean much.
+Bank income statements have no "operating income" line. They go from net interest income, fee income, credit loss provisions and operating expenses straight to pre-tax income.
+Interest coverage (EBITDA or EBIT / interest) doesn't measure a bank's ability to pay its debts. For banks that is judged by capital, liquidity and funding instead.
+What we show for banks instead
+
+Profitability: Net Income, ROA, ROE, Net Interest Margin, Fee Income and its growth.
+Capital and liquidity: CET1 Ratio, Tier 1 Capital Ratio, Liquidity Coverage Ratio.
+Credit quality: Nonperforming Loan Ratio, Allowance for Loan Losses / Loans, CRE Loans / Total Loans.
+Funding: Total Deposits, Deposit Growth, Uninsured Deposits / Total Deposits, Unrealized Securities Losses / Equity.
+If you'd like a bank equivalent of EBITDA, the standard measure is Pre-Provision Net Revenue (PPNR): net interest income plus fee income, minus operating expenses. It shows core earnings before credit losses and is the measure regulators use in bank stress tests. A related measure is the Efficiency Ratio (operating expenses / revenue), which shows cost control. We can add one or both for all banks if that would be useful. Just let us know.
+
+
+
+
 
 Thanks for the request. Metrics can't be added from the app itself; we add them in the data pipeline's configuration, and they appear after the next nightly refresh once the change is released. To add one, please send us:
 
