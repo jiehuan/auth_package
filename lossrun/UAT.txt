@@ -1,15 +1,56 @@
--- 每个 stage 的任务总耗时，以及最慢的单个任务
-SELECT stage, COUNT(*) AS n,
-       SUM(DATEDIFF(second, started_at, finished_at)) / 60 AS task_min,
-       MAX(DATEDIFF(second, started_at, finished_at)) AS max_sec
-FROM uw_pipeline.pipeline_task WHERE run_id = 5
-GROUP BY stage ORDER BY task_min DESC;
+import pyodbc, pandas as pd
 
--- 这次 run 里新调用了多少次 LLM（也就是缓存没命中的次数）
-SELECT task, COUNT(*) AS calls, SUM(input_tokens) AS tin, SUM(output_tokens) AS tout
+server   = "z-xlc-0328-axio-pr-ue2-sql01-axiomaisubmissionprioriti.database.windows.net"
+database = "z-xlc-0328-axio-pr-ue2-sdb02-axiomaisubmissionprioriti"
+scope    = "zxlc0328axioprue2key02"
+uid = dbutils.secrets.get(scope, "svc-xlc-0328-axio-pr-ue2-sql01-rw-spn-client-id")
+pwd = dbutils.secrets.get(scope, "svc-xlc-0328-axio-pr-ue2-sql01-rw-spn-client-secret")
+
+conn = pyodbc.connect(
+    "Driver={ODBC Driver 17 for SQL Server};"
+    f"Server=tcp:{server},1433;Database={database};"
+    f"Uid={uid};Pwd={pwd};Authentication=ActiveDirectoryServicePrincipal;"
+    "Encrypt=yes;TrustServerCertificate=no;"
+)
+q = lambda sql: pd.read_sql(sql, conn)
+
+# Confirm the run_id first: the last few runs
+display(q("SELECT TOP 5 run_id, job, status, started_at, finished_at "
+          "FROM uw_pipeline.pipeline_run ORDER BY run_id DESC"))
+
+
+
+display(q("""
+SELECT stage,
+       COUNT(*) AS tasks,
+       SUM(CASE WHEN status = 'SUCCEEDED' THEN 1 ELSE 0 END) AS ok,
+       MIN(started_at) AS first_start,
+       MAX(finished_at) AS last_finish,
+       DATEDIFF(minute, MIN(started_at), MAX(finished_at)) AS wall_min,
+       SUM(DATEDIFF(second, started_at, finished_at)) / 60.0 AS task_min,
+       AVG(DATEDIFF(second, started_at, finished_at) * 1.0) AS avg_s,
+       MAX(DATEDIFF(second, started_at, finished_at)) AS max_s
+FROM uw_pipeline.pipeline_task
+WHERE run_id = 5 AND started_at IS NOT NULL
+GROUP BY stage
+ORDER BY MIN(ordinal)
+"""))
+
+
+
+display(q("""
+SELECT task,
+       COUNT(*) AS calls,
+       SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) AS errors,
+       SUM(input_tokens) AS in_tok,
+       SUM(output_tokens) AS out_tok,
+       MIN(created_at) AS first_call,
+       MAX(created_at) AS last_call
 FROM uw_pipeline.llm_call
-WHERE created_at >= '2026-11-13T10:30:00'
-GROUP BY task ORDER BY calls DESC;
+WHERE created_at >= (SELECT started_at FROM uw_pipeline.pipeline_run WHERE run_id = 5)
+GROUP BY task
+ORDER BY calls DESC
+"""))
 
 
 
