@@ -1,3 +1,20 @@
+-- 每个 stage 的任务总耗时，以及最慢的单个任务
+SELECT stage, COUNT(*) AS n,
+       SUM(DATEDIFF(second, started_at, finished_at)) / 60 AS task_min,
+       MAX(DATEDIFF(second, started_at, finished_at)) AS max_sec
+FROM uw_pipeline.pipeline_task WHERE run_id = 5
+GROUP BY stage ORDER BY task_min DESC;
+
+-- 这次 run 里新调用了多少次 LLM（也就是缓存没命中的次数）
+SELECT task, COUNT(*) AS calls, SUM(input_tokens) AS tin, SUM(output_tokens) AS tout
+FROM uw_pipeline.llm_call
+WHERE created_at >= '2026-11-13T10:30:00'
+GROUP BY task ORDER BY calls DESC;
+
+
+
+
+
 $b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
 
 UserFavority,UserPinnedCompanies,UserHistory,UserFlaggedFollowupQuestions,UserMetricsSelection,UserNotificationRead
