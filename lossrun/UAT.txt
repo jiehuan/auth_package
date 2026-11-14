@@ -1,3 +1,17 @@
+import struct, datetime
+
+def _dto(raw):
+    # DATETIMEOFFSET: year, month, day, hour, minute, second, nanoseconds, offset hours, offset minutes
+    y, mo, d, h, mi, s, ns, oh, om = struct.unpack("<6hI2h", raw)
+    tz = datetime.timezone(datetime.timedelta(hours=oh, minutes=om))
+    return datetime.datetime(y, mo, d, h, mi, s, ns // 1000, tzinfo=tz)
+
+conn.add_output_converter(-155, _dto)
+
+
+
+
+
 import pyodbc, pandas as pd
 
 server   = "z-xlc-0328-axio-pr-ue2-sql01-axiomaisubmissionprioriti.database.windows.net"
