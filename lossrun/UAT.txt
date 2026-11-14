@@ -1,3 +1,26 @@
+display(q("""
+SELECT f.severity, f.rule_id,
+       COUNT(*) AS n,
+       COUNT(DISTINCT f.company_id) AS companies
+FROM uw_pipeline.dq_finding f
+WHERE f.run_id = 8 AND f.severity IN ('Error', 'Warning')
+GROUP BY f.severity, f.rule_id
+ORDER BY f.severity, n DESC
+"""))
+
+
+display(q("""
+SELECT c.ticker, f.rule_id, f.metric_code, f.period, f.message
+FROM uw_pipeline.dq_finding f
+JOIN uw_pipeline.company c ON c.company_id = f.company_id
+WHERE f.run_id = 8 AND f.severity = 'Error'
+ORDER BY f.rule_id, c.ticker
+"""))
+
+
+
+
+
 import struct, datetime
 
 def _dto(raw):
